@@ -1,0 +1,42 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html {
+  color-scheme: light;
+}
+
+body {
+  background-color: #f6f8fa;
+  background-image:
+    linear-gradient(to bottom, #f6f8fa 0%, #f1f4f8 100%);
+  min-height: 100vh;
+}
+
+::selection {
+  background-color: #0f7d7822;
+}
+
+/* Visible keyboard focus, kept consistent across custom controls */
+:focus-visible {
+  outline: 2px solid #0f7d78;
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}
+
+.tick-rail {
+  background-image: repeating-linear-gradient(
+    to right,
+    #c1c9d6 0px,
+    #c1c9d6 1px,
+    transparent 1px,
+    transparent 8px
+  );
+}

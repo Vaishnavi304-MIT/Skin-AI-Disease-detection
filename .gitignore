@@ -1,0 +1,32 @@
+venv
+.env
+
+medical_guidelines
+processed_dataset
+augmented dataset
+raw_dataset
+
+.vscode
+
+__pycache__
+
+mobile_sam.pt
+
+
+# --- Node / frontend ---
+frontend/node_modules/
+node_modules/
+frontend/.next/
+.next/
+frontend/out/
+frontend/.vercel/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+ 
+# --- OS / editor cruft ---
+.DS_Store
+Thumbs.db
+.vscode/*
+!.vscode/extensions.json
+ 
