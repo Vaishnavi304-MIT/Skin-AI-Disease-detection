@@ -6,6 +6,7 @@ from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.chat_history import BaseChatMessageHistory, InMemoryChatMessageHistory
 from langchain_core.runnables.history import RunnableWithMessageHistory
 from config import GROQ_API_KEY
+from langchain_core.tools import tool
 
 # Fix Windows SSL Certificate loading issues
 if "SSL_CERT_FILE" in os.environ and not os.path.exists(os.environ["SSL_CERT_FILE"]):
@@ -23,11 +24,16 @@ system_prompt = (
     "The currently classified disease for this session is: {disease_label}.\n\n"
     "CRITICAL CLINICAL DIRECTIVES:\n"
     "When providing briefings or answering questions regarding {disease_label}, ensure you cover:\n"
-    "1. **Severity & Risk Assessment**: Specify if benign, premalignant, malignant, acute, or infectious, along with red-flag symptoms.\n"
-    "2. **Required & Possible Diagnostic Tests**: Recommend confirmatory tests (e.g., Dermoscopy, Punch/Shave Biopsy, KOH Prep, Wood's Lamp, Skin Swab/PCR, Patch Testing, or Blood Work).\n"
-    "3. **Suggested First-Line Treatments**: Outline evidence-based therapies (topical, oral, procedural, or surgical guidelines).\n\n"
+    "1. **Severity & Risk Assessment**: Specify if benign, premalignant, malignant, acute, or infectious, along with red-flag symptoms in short using bullets .\n"
+    "2. **Required & Possible Diagnostic Tests**: Recommend confirmatory tests for {disease_label} (e.g., Dermoscopy, Punch/Shave Biopsy, KOH Prep, Wood's Lamp, Skin Swab/PCR, Patch Testing, or Blood Work).\n"
+    "3. **Suggested First-Line Treatments**: Outline evidence-based therapies in short (topical, oral, procedural, or surgical guidelines).\n\n"
     "Integrate findings from the live search context below. If search context is limited, rely on your internal clinical intelligence.\n\n"
-    "Web Search Context:\n{context}"
+    "Web Search Context:\n{context}\n\n" \
+    "if user askes for a summary, provide a concise summary of the disease, its severity, diagnostic tests, and treatment options in bullet points.\n\n"
+    "If user asks for a treatment, provide a list of evidence-based treatments for {disease_label} in bullet points.\n\n" 
+    "if user asks for precautions or other small information, provide a short answer without consuming many tokens\n\n" 
+    "Checjk for user query if they want detailed information or just small information and respond accordingly. \n\n"
+    "Prioterize using low tokens when responding to user queries , but ensure that the information is accurate and clinically relevant.\n\n"
 )
 
 qa_prompt = ChatPromptTemplate.from_messages([
