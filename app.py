@@ -1,167 +1,353 @@
+import json
 import os
 import uuid
-import certifi
 
-if "SSL_CERT_FILE" in os.environ and not os.path.exists(os.environ["SSL_CERT_FILE"]):
-    del os.environ["SSL_CERT_FILE"]
-try:
-    os.environ["SSL_CERT_FILE"] = certifi.where()
-except ImportError:
-    pass
+# ============================================================
+# SSL FIX (Must be placed before any other imports)
+# ============================================================
+
+os.environ.pop("SSL_CERT_FILE", None)
+os.environ.pop("REQUESTS_CA_BUNDLE", None)
+os.environ.pop("CURL_CA_BUNDLE", None)
+
+# ============================================================
+# IMPORTS
+# ============================================================
 
 import gradio as gr
+import spaces
 import torch
 from PIL import Image
 from transformers import AutoImageProcessor, AutoModelForImageClassification
+from web_rag_agent import (
+    clear_session_history,
+    generate_initial_content,
+    query_chat_bot,
+)
 
-from web_rag_agent import query_chat_bot, clear_session_history
+# ============================================================
+# MODEL SETUP
+# ============================================================
 
-GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
-HF_MODEL_ID = os.environ.get("HF_MODEL_ID", "shindevaishnavi304/dinov2-finetuned-skin-disease")
+HF_MODEL_ID = "shindevaishnavi304/dinov2-finetuned-skin-disease"
 
-print(f"Loading classifier: {HF_MODEL_ID}")
+print("=" * 65)
+print("Loading skin disease classifier...")
+print("=" * 65)
+
 processor = AutoImageProcessor.from_pretrained(HF_MODEL_ID)
 model = AutoModelForImageClassification.from_pretrained(HF_MODEL_ID)
 model.eval()
+
+print("Model loaded successfully.")
+print("=" * 65)
+
+
+# ============================================================
+# HELPER FUNCTIONS
+# ============================================================
 
 
 def new_session():
     return str(uuid.uuid4())
 
 
-def classify_and_start_chat(image: Image.Image, old_session_id: str):
-    if image is None:
-        return [], "Please upload a dermoscopic skin image first.", None, old_session_id
+def parse_llm_response(briefing_raw, questions_raw):
+    clean_briefing = briefing_raw
+    clean_questions = questions_raw or []
 
-    if GROQ_API_KEY is None:
+    if isinstance(briefing_raw, dict):
+        clean_briefing = briefing_raw.get("briefing", briefing_raw.get("answer", str(briefing_raw)))
+        clean_questions = briefing_raw.get("questions", clean_questions)
+    elif isinstance(briefing_raw, str) and briefing_raw.strip().startswith("{"):
+        try:
+            parsed = json.loads(briefing_raw)
+            clean_briefing = parsed.get("briefing", parsed.get("answer", briefing_raw))
+            if "questions" in parsed and not clean_questions:
+                clean_questions = parsed.get("questions", [])
+        except Exception:
+            clean_briefing = briefing_raw.replace('\\"', '"')
+
+    if isinstance(clean_briefing, str):
+        clean_briefing = clean_briefing.replace("\\n", "\n").strip()
+
+    if isinstance(clean_questions, list):
+        clean_questions = [str(q).strip() for q in clean_questions if str(q).strip()]
+    else:
+        clean_questions = []
+
+    return clean_briefing, clean_questions
+
+
+# ============================================================
+# CLASSIFY IMAGE & START CONSULTATION
+# ============================================================
+
+
+def classify_and_start_chat(image, old_session_id):
+    if image is None:
         return (
             [],
-            "⚠️ GROQ_API_KEY is not set. Please set it in your environment variables.",
+            "Please upload a dermoscopic skin image first.",
             None,
-            old_session_id
+            old_session_id,
+            gr.update(choices=[], value=None),
         )
 
-    # 1. Clear previous session memory & initialize a new session ID
-    clear_session_history(old_session_id)
+    if old_session_id:
+        clear_session_history(old_session_id)
+
     fresh_session_id = new_session()
 
-    # 2. Perform image classification
     image = image.convert("RGB")
     inputs = processor(images=image, return_tensors="pt")
 
-    with torch.no_grad():
+    with torch.inference_mode():
         outputs = model(**inputs)
-        probs = torch.softmax(outputs.logits, dim=1)
-        conf, pred_id = torch.max(probs, dim=1)
+        probabilities = torch.softmax(outputs.logits, dim=1)
+        confidence, prediction_id = torch.max(probabilities, dim=1)
 
-    predicted_class = model.config.id2label[pred_id.item()]
-    confidence = conf.item() * 100
+    predicted_class = model.config.id2label[prediction_id.item()]
+    confidence_percentage = confidence.item() * 100
 
-    result_md = f"**Predicted Diagnosis:** `{predicted_class}`  \n**Confidence:** `{confidence:.1f}%`"
-
-    # 3. Prompt chatbot for Clinical Assessment (Severity, Tests, Treatments)
-    briefing_prompt = (
-        f"Generate a structured clinical evaluation for {predicted_class}:\n"
-        f"1. **Severity & Risk Assessment**: Is it benign, premalignant, malignant, acute, or contagious? State red flags.\n"
-        f"2. **Possible & Required Diagnostic Tests**: What tests are needed to confirm the diagnosis (e.g., Dermoscopy, Biopsy, KOH Prep, Swab/PCR)?\n"
-        f"3. **Suggested First-Line Treatments**: Outline standard topical, oral, or procedural treatments."
-    )
-    
-    clinical_briefing = query_chat_bot(
-        user_input=briefing_prompt,
-        disease_label=predicted_class,
-        session_id=fresh_session_id
+    result_md = (
+        f"**Predicted Condition:** `{predicted_class}`  \n"
+        f"**Model Confidence:** `{confidence_percentage:.1f}%`"
     )
 
-    welcome_msg = (
-        f"🔬 **Lesion Analysis Complete**\n\n"
-        f"• **Predicted Condition:** `{predicted_class}`\n"
-        f"• **Confidence Score:** `{confidence:.1f}%`\n\n"
-        f"---\n\n"
-        f"{clinical_briefing}\n\n"
-        f"---\n"
-        f"*Ask any follow-up questions regarding test interpretations or treatment adjustments.*"
+    try:
+        raw_briefing, raw_questions = generate_initial_content(
+            disease_label=predicted_class,
+            session_id=fresh_session_id,
+        )
+        briefing, questions = parse_llm_response(raw_briefing, raw_questions)
+    except Exception as e:
+        print("Initial briefing error:", e)
+        briefing = "Clinical briefing could not be generated."
+        questions = []
+
+    welcome_message = (
+        "### 🔬 Lesion Analysis Complete\n\n"
+        f"- **Predicted Condition:** `{predicted_class}`\n"
+        f"- **Model Confidence:** `{confidence_percentage:.1f}%`\n\n"
+        "---\n\n"
+        f"{briefing}\n\n"
+        "---\n\n"
+        "💡 **Suggested Questions**\n"
+        "Click any suggestion below or ask your own question below."
     )
-    
-    new_history = [{"role": "assistant", "content": welcome_msg}]
-    return new_history, result_md, predicted_class, fresh_session_id
+
+    history = [{"role": "assistant", "content": welcome_message}]
+    question_update = gr.update(choices=questions, value=None)
+
+    return (
+        history,
+        result_md,
+        predicted_class,
+        fresh_session_id,
+        question_update,
+    )
+
+
+# ============================================================
+# CHAT HANDLERS
+# ============================================================
+
+
+def answer_suggested_question(question, history, predicted_class, session_id):
+    if not question:
+        return history, gr.update()
+
+    if not predicted_class:
+        return (
+            history + [{"role": "assistant", "content": "⚠️ Please classify an image first."}],
+            gr.update(choices=[], value=None),
+        )
+
+    try:
+        raw_answer, raw_questions = query_chat_bot(
+            user_input=question,
+            disease_label=predicted_class,
+            session_id=session_id,
+        )
+        answer, questions = parse_llm_response(raw_answer, raw_questions)
+    except Exception as e:
+        print("Suggested question error:", e)
+        answer = "Sorry, I could not generate an answer."
+        questions = []
+
+    new_history = history + [
+        {"role": "user", "content": question},
+        {"role": "assistant", "content": answer},
+    ]
+
+    return new_history, gr.update(choices=questions, value=None)
 
 
 def respond(message, history, predicted_class, session_id):
     if not message or not message.strip():
-        return history, ""
+        return history, "", gr.update()
 
-    updated_history = history + [{"role": "user", "content": message}]
-    
+    if not predicted_class:
+        return (
+            history + [{"role": "assistant", "content": "⚠️ Please classify an image first."}],
+            "",
+            gr.update(choices=[], value=None),
+        )
+
     try:
-        answer = query_chat_bot(
+        raw_answer, raw_questions = query_chat_bot(
             user_input=message,
-            disease_label=predicted_class if predicted_class else "Unspecified Skin Condition",
+            disease_label=predicted_class,
             session_id=session_id,
         )
+        answer, questions = parse_llm_response(raw_answer, raw_questions)
     except Exception as e:
-        answer = f"⚠️ Error generating response: {e}"
+        print("Chatbot error:", e)
+        answer = "Sorry, I could not generate an answer."
+        questions = []
 
-    updated_history = updated_history + [{"role": "assistant", "content": answer}]
-    return updated_history, ""
+    new_history = history + [
+        {"role": "user", "content": message},
+        {"role": "assistant", "content": answer},
+    ]
+
+    return new_history, "", gr.update(choices=questions, value=None)
 
 
 def reset_app(session_id):
-    clear_session_history(session_id)
-    return None, "", [], None, new_session()
+    if session_id:
+        clear_session_history(session_id)
+
+    return (
+        None,
+        "",
+        [],
+        None,
+        new_session(),
+        gr.update(choices=[], value=None),
+    )
 
 
-with gr.Blocks(title="Skin AI — Clinical Decision Support", theme=gr.themes.Soft()) as demo:
+# ============================================================
+# GRADIO INTERFACE
+# ============================================================
+
+with gr.Blocks(
+    title="Skin AI — Clinical Decision Support",
+    theme=gr.themes.Soft(),
+) as demo:
+
     session_id_state = gr.State(new_session())
     predicted_class_state = gr.State(None)
 
     gr.Markdown(
-        "# 👨‍⚕️ Skin AI — Clinical Decision Support\n"
-        "Upload a dermoscopic skin image to classify the condition. The AI assistant automatically evaluates severity, recommends confirmatory diagnostic tests, and suggests evidence-based treatments."
+        """
+# 👨‍⚕️ Skin AI — Clinical Decision Support
+
+Upload a dermoscopic skin image to classify the condition.
+
+The system provides an immediate clinical briefing covering **Severity, Malignancy, Diagnostic Tests, and First-line Treatments**.
+"""
     )
 
     with gr.Row():
         with gr.Column(scale=2):
             gr.Markdown("### 1. Image Classification")
-            image_input = gr.Image(type="pil", label="Upload Dermoscopic Image")
-            classify_btn = gr.Button("Classify & Start Consultation", variant="primary")
+            image_input = gr.Image(
+                type="pil",
+                label="Upload Dermoscopic Image",
+            )
+            classify_btn = gr.Button(
+                "🔬 Classify & Start Consultation",
+                variant="primary",
+            )
             result_md = gr.Markdown()
-            reset_btn = gr.Button("Reset Consultation", variant="secondary")
+            reset_btn = gr.Button(
+                "🔄 Reset Consultation",
+                variant="secondary",
+            )
 
         with gr.Column(scale=3):
             gr.Markdown("### 2. Clinical AI Assistant")
-            chatbot = gr.Chatbot(height=480)
+            chatbot = gr.Chatbot(
+                height=480,
+                label="Clinical AI Assistant",
+            )
+            suggested_questions = gr.Radio(
+                choices=[],
+                value=None,
+                label="💡 Dynamic Suggested Questions",
+                interactive=True,
+            )
             msg_input = gr.Textbox(
-                placeholder="Ask follow-up questions (e.g., 'When is a biopsy strictly required?')...",
+                placeholder="Ask about tests, symptoms, alternatives, recovery...",
                 label=None,
-                interactive=True
             )
             send_btn = gr.Button("Send Question", variant="primary")
 
-    # Event Handlers
+    # Event Listeners
     classify_btn.click(
         fn=classify_and_start_chat,
         inputs=[image_input, session_id_state],
-        outputs=[chatbot, result_md, predicted_class_state, session_id_state],
+        outputs=[
+            chatbot,
+            result_md,
+            predicted_class_state,
+            session_id_state,
+            suggested_questions,
+        ],
+    )
+
+    suggested_questions.change(
+        fn=answer_suggested_question,
+        inputs=[
+            suggested_questions,
+            chatbot,
+            predicted_class_state,
+            session_id_state,
+        ],
+        outputs=[chatbot, suggested_questions],
     )
 
     send_btn.click(
         fn=respond,
-        inputs=[msg_input, chatbot, predicted_class_state, session_id_state],
-        outputs=[chatbot, msg_input],
+        inputs=[
+            msg_input,
+            chatbot,
+            predicted_class_state,
+            session_id_state,
+        ],
+        outputs=[chatbot, msg_input, suggested_questions],
     )
 
     msg_input.submit(
         fn=respond,
-        inputs=[msg_input, chatbot, predicted_class_state, session_id_state],
-        outputs=[chatbot, msg_input],
+        inputs=[
+            msg_input,
+            chatbot,
+            predicted_class_state,
+            session_id_state,
+        ],
+        outputs=[chatbot, msg_input, suggested_questions],
     )
 
     reset_btn.click(
         fn=reset_app,
         inputs=[session_id_state],
-        outputs=[image_input, result_md, chatbot, predicted_class_state, session_id_state],
+        outputs=[
+            image_input,
+            result_md,
+            chatbot,
+            predicted_class_state,
+            session_id_state,
+            suggested_questions,
+        ],
     )
 
+# ============================================================
+# RUN
+# ============================================================
+
 if __name__ == "__main__":
-    demo.launch(server_name="127.0.0.1", server_port=7860, share=True)
+    demo.launch()
