@@ -1,33 +1,71 @@
----
-title: Skin AI Clinical Decision Support
-emoji: 🩺
-colorFrom: blue
-colorTo: indigo
-sdk: gradio
-app_file: app.py
+# 🩺 Skin AI — Skin Disease Detection and Clinical Decision Support
+
+> **An AI-powered skin disease detection system that combines DINOv2 image classification with a conversational clinical assistant to provide disease information, diagnostic tests, severity assessment, treatment guidance, and relevant web-based information.**
+
 ---
 
-# Skin AI — Clinical Decision Support
+## 🚩 Problem Statement
 
-An AI-assisted skin disease detection system using
-DINOv2 image classification with a conversational
-clinical assistant.
+Skin diseases can be difficult to identify because many conditions have similar visual appearances.
 
-## Features
+Traditional diagnosis may require:
 
-- Skin disease classification
-- Confidence score
-- Severity assessment
-- Diagnostic test suggestions
+- Dermatological examination
+- Dermoscopy
+- Laboratory tests
+- Biopsy
+- Specialist consultation
+
+This can require time and access to trained healthcare professionals.
+
+Therefore, this project aims to provide an **AI-assisted system** that can analyze a skin image and provide useful clinical information to support further evaluation.
+
+> ⚠️ This system is intended for educational and research purposes. It does **not** provide a confirmed medical diagnosis.
+
+---
+
+# 💡 Solution
+
+The proposed system combines **deep-learning image classification** with a **conversational AI assistant**.
+
+The system works in two main stages:
+
+### Stage 1 — Skin Disease Classification
+
+A fine-tuned **DINOv2** image classification model analyzes the uploaded skin image and predicts the most likely skin disease along with a confidence score.
+
+### Stage 2 — Clinical AI Assistant
+
+After classification, the predicted disease is passed to a conversational AI assistant.
+
+The assistant can provide:
+
+- Severity information
+- Malignancy information
+- Warning signs
+- Relevant diagnostic tests
 - Treatment information
-- Disease-specific suggested questions
-- Clickable AI questions
-- DuckDuckGo web search for relevant clinical information
-- Groq-powered conversational assistant
+- Follow-up information
+- Answers to user questions
 
-## Disclaimer
+For relevant clinical questions, the system can also retrieve information using **DuckDuckGo web search** before generating the response.
 
-This application is for educational and research purposes.
-The prediction is not a confirmed medical diagnosis.
-A qualified healthcare professional should confirm any
-clinical diagnosis.
+---
+
+# ✨ Key Features
+
+## 🔬 1. Skin Disease Image Classification
+
+The system accepts a skin/dermoscopic image and uses a fine-tuned DINOv2 model to predict the condition.
+
+It provides:
+
+- Predicted condition
+- Model confidence score
+- Fast image classification
+
+Example:
+
+```text
+Predicted Condition: Bullous Disease
+Model Confidence: 87.4%
