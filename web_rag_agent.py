@@ -58,6 +58,7 @@ RULES:
 - Use current real-world diagnostic tests and first-line treatments.
 - Integrate the provided web context accurately.
 - The image prediction is NOT a confirmed diagnosis.
+-
 
 WEB CONTEXT:
 {context}
@@ -154,14 +155,18 @@ Format the briefing in Markdown with these exact sections:
 
 Also generate exactly 4 relevant follow-up questions tailored to {disease_label}.
 
+Provide a direct, structured clinical answer to the query.
+2. Generate 4 new, contextual follow-up questions that the DOCTOR or USER WOULD ASK YOU NEXT based on this response.
+(Do NOT generate questions directed at the user).
+
 Output MUST be valid JSON:
 {{
-    "briefing": "markdown string for briefing",
+    "answer": "markdown string answer",
     "questions": [
-        "question 1",
-        "question 2",
-        "question 3",
-        "question 4"
+        "follow-up question 1",
+        "follow-up question 2",
+        "follow-up question 3",
+        "follow-up question 4"
     ]
 }}
 """

@@ -53,16 +53,21 @@ def new_session():
 
 
 def parse_llm_response(briefing_raw, questions_raw):
+    """Ensures briefing markdown and question list format properly without JSON residue."""
     clean_briefing = briefing_raw
     clean_questions = questions_raw or []
 
     if isinstance(briefing_raw, dict):
-        clean_briefing = briefing_raw.get("briefing", briefing_raw.get("answer", str(briefing_raw)))
+        clean_briefing = briefing_raw.get(
+            "briefing", briefing_raw.get("answer", str(briefing_raw))
+        )
         clean_questions = briefing_raw.get("questions", clean_questions)
     elif isinstance(briefing_raw, str) and briefing_raw.strip().startswith("{"):
         try:
             parsed = json.loads(briefing_raw)
-            clean_briefing = parsed.get("briefing", parsed.get("answer", briefing_raw))
+            clean_briefing = parsed.get(
+                "briefing", parsed.get("answer", briefing_raw)
+            )
             if "questions" in parsed and not clean_questions:
                 clean_questions = parsed.get("questions", [])
         except Exception:
@@ -72,7 +77,9 @@ def parse_llm_response(briefing_raw, questions_raw):
         clean_briefing = clean_briefing.replace("\\n", "\n").strip()
 
     if isinstance(clean_questions, list):
-        clean_questions = [str(q).strip() for q in clean_questions if str(q).strip()]
+        clean_questions = [
+            str(q).strip() for q in clean_questions if str(q).strip()
+        ]
     else:
         clean_questions = []
 
@@ -80,10 +87,11 @@ def parse_llm_response(briefing_raw, questions_raw):
 
 
 # ============================================================
-# CLASSIFY IMAGE & START CONSULTATION
+# CLASSIFY IMAGE & START CONSULTATION (ZeroGPU decorated)
 # ============================================================
 
 
+@spaces.GPU
 def classify_and_start_chat(image, old_session_id):
     if image is None:
         return (
@@ -99,9 +107,16 @@ def classify_and_start_chat(image, old_session_id):
 
     fresh_session_id = new_session()
 
+    # Move model to active device in ZeroGPU
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    model.to(device)
+
+    # Preprocess Image
     image = image.convert("RGB")
     inputs = processor(images=image, return_tensors="pt")
+    inputs = {k: v.to(device) for k, v in inputs.items()}
 
+    # Model Inference
     with torch.inference_mode():
         outputs = model(**inputs)
         probabilities = torch.softmax(outputs.logits, dim=1)
@@ -160,7 +175,13 @@ def answer_suggested_question(question, history, predicted_class, session_id):
 
     if not predicted_class:
         return (
-            history + [{"role": "assistant", "content": "⚠️ Please classify an image first."}],
+            history
+            + [
+                {
+                    "role": "assistant",
+                    "content": "⚠️ Please classify an image first.",
+                }
+            ],
             gr.update(choices=[], value=None),
         )
 
@@ -190,7 +211,13 @@ def respond(message, history, predicted_class, session_id):
 
     if not predicted_class:
         return (
-            history + [{"role": "assistant", "content": "⚠️ Please classify an image first."}],
+            history
+            + [
+                {
+                    "role": "assistant",
+                    "content": "⚠️ Please classify an image first.",
+                }
+            ],
             "",
             gr.update(choices=[], value=None),
         )
@@ -233,10 +260,7 @@ def reset_app(session_id):
 # GRADIO INTERFACE
 # ============================================================
 
-with gr.Blocks(
-    title="Skin AI — Clinical Decision Support",
-    theme=gr.themes.Soft(),
-) as demo:
+with gr.Blocks(title="Skin AI — Clinical Decision Support") as demo:
 
     session_id_state = gr.State(new_session())
     predicted_class_state = gr.State(None)
@@ -247,7 +271,7 @@ with gr.Blocks(
 
 Upload a dermoscopic skin image to classify the condition.
 
-The system provides an immediate clinical briefing covering **Severity, Malignancy, Diagnostic Tests, and First-line Treatments**.
+The system provides an immediate clinical briefing covering **Severity, Malignancy, Diagnostic Tests (via DuckDuckGo), and First-line Treatments**.
 """
     )
 
@@ -350,4 +374,4 @@ The system provides an immediate clinical briefing covering **Severity, Malignan
 # ============================================================
 
 if __name__ == "__main__":
-    demo.launch()
+    demo.launch(theme=gr.themes.Soft())
