@@ -1,9 +1,9 @@
-import json
 import os
 import re
+import functools
 
 # ============================================================
-# SSL FIX (Must be placed before external imports)
+# SSL FIX (Must run before network imports)
 # ============================================================
 
 os.environ.pop("SSL_CERT_FILE", None)
@@ -28,52 +28,31 @@ from langchain_core.runnables.history import RunnableWithMessageHistory
 from langchain_groq import ChatGroq
 
 # ============================================================
-# GROQ & SEARCH
+# MODEL SETUP
 # ============================================================
+# Two model instances: a larger-budget one for the first, structured
+# briefing, and a leaner one for fast follow-up chat turns. Follow-up
+# answers don't need 900 tokens, so cutting max_tokens there directly
+# cuts latency.
 
-model = ChatGroq(
+briefing_model = ChatGroq(
     model="openai/gpt-oss-120b",
     temperature=0.1,
-    max_tokens=1024,
+    max_tokens=800,
+    groq_api_key=GROQ_API_KEY,
+)
+
+chat_model = ChatGroq(
+    model="openai/gpt-oss-120b",
+    temperature=0.1,
+    max_tokens=450,
     groq_api_key=GROQ_API_KEY,
 )
 
 search = DuckDuckGoSearchRun()
 
 # ============================================================
-# SYSTEM PROMPT
-# ============================================================
-
-system_prompt = """
-You are Skin AI, a clinical decision support assistant in dermatology.
-
-Predicted condition:
-{disease_label}
-
-Use concise, direct, and structured clinical language.
-
-RULES:
-- Answer accurately using bullet points and bold section headers.
-- Clearly state whether a condition is Benign, Premalignant, or Malignant.
-- Use current real-world diagnostic tests and first-line treatments.
-- Integrate the provided web context accurately.
-- The image prediction is NOT a confirmed diagnosis.
--
-
-WEB CONTEXT:
-{context}
-"""
-
-prompt = ChatPromptTemplate.from_messages(
-    [
-        ("system", system_prompt),
-        MessagesPlaceholder("chat_history"),
-        ("human", "{input}"),
-    ]
-)
-
-# ============================================================
-# MEMORY
+# SESSION MEMORY
 # ============================================================
 
 store = {}
@@ -90,169 +69,194 @@ def clear_session_history(session_id: str):
 
 
 # ============================================================
-# WEB SEARCH
+# SYSTEM PROMPT
 # ============================================================
 
+system_prompt = """
+You are Skin AI, a clinical decision support assistant for DERMATOLOGISTS.
+The end user is a licensed clinician, not a patient — you may name specific
+drugs, dosages, routes and durations for their professional review.
 
-def search_web(disease: str, query_type: str = "general", question: str = "") -> str:
-    """Executes targeted searches on DuckDuckGo."""
-    if query_type == "tests":
-        query = f"{disease} diagnostic tests criteria biopsy laboratory panel dermoscopy dermatology guidelines"
-    elif query_type == "initial":
-        query = f"{disease} dermatology clinical severity malignancy diagnostic tests first-line treatment guidelines"
-    else:
-        query = f"{disease} {question} dermatology clinical diagnosis treatment"
+Condition identified: {disease_label}
 
+CRITICAL RULES:
+-Always use easy language which is understandable.
+- Use clean Markdown with bullet points and bold section headers.
+- Be concise and scannable — clinicians skim. No filler sentences.
+- Extract and cite the latest diagnostic tests / treatment facts from the
+  web context when it is provided. If web context is empty, answer from
+  established clinical knowledge and say so briefly.
+- Never output raw JSON braces or JSON keys.
+- The Risk Level line MUST use exactly one of these three words:
+  Benign, Pre-malignant, or Malignant.
+- Suggested questions must be questions a CLINICIAN would ask THIS AI
+  next (never questions directed at the user).
+
+WEB CONTEXT:
+{context}
+"""
+
+prompt = ChatPromptTemplate.from_messages(
+    [
+        ("system", system_prompt),
+        MessagesPlaceholder("chat_history"),
+        ("human", "{input}"),
+    ]
+)
+
+# ============================================================
+# DUCKDUCKGO SEARCH — cached + combined to cut calls/tokens
+# ============================================================
+
+# Words that signal a follow-up question actually needs fresh web facts.
+# Kept broad on purpose: false negatives (skipping a needed search) hurt
+# clinical accuracy more than the cost of an occasional extra search.
+SEARCH_TRIGGER_KEYWORDS = {
+    "test", "biopsy", "treatment", "cure", "drug", "medication", "medicine",
+    "dose", "dosage", "malignan", "cancer", "guideline", "latest", "recent",
+    "study", "trial", "protocol", "fda", "approved", "alternative",
+    "side effect", "interaction", "recurrence", "prognosis", "staging",
+}
+
+# Short conversational turns that never need a search, checked first so
+# they short-circuit before the trigger-keyword scan even runs.
+NO_SEARCH_PATTERNS = re.compile(
+    r"^\s*(hi|hello|hey|thanks|thank you|ok|okay|sure|got it|great|cool|yes|no)\W*\s*$",
+    re.IGNORECASE,
+)
+
+
+@functools.lru_cache(maxsize=128)
+def _cached_search(query: str) -> str:
     print("=" * 65)
     print("DUCKDUCKGO SEARCH")
     print("Query:", query)
-
     try:
-        result = search.run(query)
-        if not result:
-            print("No search results returned.")
-            return ""
-        return result[:2500]
+        res = search.run(query)
+        return res[:2000] if res else ""
     except Exception as e:
         print(f"DuckDuckGo search error: {e}")
         return ""
 
 
+def search_initial_briefing(disease: str) -> str:
+    """One combined query instead of two — halves the initial-load search
+    latency and DuckDuckGo calls while still covering tests, severity and
+    treatment in a single pass."""
+    query = (
+        f"{disease} dermatology diagnostic tests biopsy dermoscopy "
+        f"severity malignancy first-line treatment guidelines"
+    )
+    return _cached_search(query)
+
+
+def needs_search(user_input: str) -> bool:
+    if NO_SEARCH_PATTERNS.match(user_input):
+        return False
+    text = user_input.lower()
+    return any(kw in text for kw in SEARCH_TRIGGER_KEYWORDS)
+
+
+def search_followup(disease: str, question: str) -> str:
+    query = f"{disease} {question} dermatology clinical guidance"
+    return _cached_search(query)
+
+
 # ============================================================
-# INITIAL BRIEFING + QUESTIONS
+# OUTPUT PARSING
+# ============================================================
+
+
+def parse_clean_output(text: str, fallback_questions: list):
+    """Cleanly splits main briefing/answer from questions without JSON parsing issues."""
+    text = re.sub(r"```json|```", "", text).strip()
+
+    if "===QUESTIONS===" in text:
+        parts = text.split("===QUESTIONS===")
+        main_content = parts[0].strip()
+        raw_qs = parts[1].strip().split("\n")
+        questions = [
+            re.sub(r"^[-*0-9.]+\s*", "", q).strip()
+            for q in raw_qs
+            if q.strip() and not q.strip().startswith("{")
+        ][:4]
+        return main_content, questions if questions else fallback_questions
+
+    return text.strip(), fallback_questions
+
+
+_RISK_PATTERN = re.compile(
+    r"risk level\**:?\**\s*(benign|pre-malignant|malignant)", re.IGNORECASE
+)
+
+RISK_BADGES = {
+    "benign": "🟢 **Low Risk — Benign**",
+    "pre-malignant": "🟡 **Moderate Risk — Pre-malignant**",
+    "malignant": "🔴 **High Risk — Malignant**",
+}
+
+
+def extract_risk_level(text: str) -> str:
+    match = _RISK_PATTERN.search(text)
+    if match:
+        return RISK_BADGES[match.group(1).lower()]
+    return "⚪ **Risk level unclear — review manually**"
+
+
+# ============================================================
+# CHAIN HELPERS
+# ============================================================
+
+
+def _make_chat(model):
+    chain = prompt | model
+    return RunnableWithMessageHistory(
+        chain,
+        get_session_history,
+        input_messages_key="input",
+        history_messages_key="chat_history",
+    )
+
+
+# ============================================================
+# INITIAL BRIEFING (non-streaming, kept for compatibility)
 # ============================================================
 
 
 def generate_initial_content(disease_label: str, session_id: str):
-    # Targeted search specifically gathering diagnostic tests and guidelines
-    test_context = search_web(disease=disease_label, query_type="tests")
-    general_context = search_web(disease=disease_label, query_type="initial")
-    combined_context = f"TEST DATA:\n{test_context}\n\nGENERAL CLINICAL DATA:\n{general_context}"
-
-    chain = prompt | model
-    chat = RunnableWithMessageHistory(
-        chain,
-        get_session_history,
-        input_messages_key="input",
-        history_messages_key="chat_history",
+    briefing, questions, _risk = generate_initial_content_full(
+        disease_label, session_id
     )
+    return briefing, questions
+
+
+def generate_initial_content_full(disease_label: str, session_id: str):
+    """Returns (briefing, questions, risk_badge)."""
+    context = search_initial_briefing(disease_label)
+
+    chat = _make_chat(briefing_model)
 
     request = f"""
-Provide a structured clinical briefing for: '{disease_label}'.
-Use the real-time test information from the web search to supply accurate, current diagnostic tests.
+Using the web context provided, create a structured clinical briefing for '{disease_label}'.
 
-Format the briefing in Markdown with these exact sections:
+Format the response using this exact structure:
+
 ### ⚠️ Severity & Malignancy
-- **Risk Level:** Benign / Pre-malignant / Malignant
-- **Clinical Severity:** Expected progression, severity, and warning signs.
+- **Risk Level:** Benign / Pre-malignant / Malignant (pick exactly one word)
+- **Clinical Severity:** Expected course and key warning signs.
 
 ### 🧪 Diagnostic Tests Required
-- **Current Confirmatory Tests:** List 2 to 4 specific diagnostic/laboratory tests based on current guidelines (e.g., Punch Biopsy, Dermoscopic features, Direct Immunofluorescence, Patch test, Blood panels). Explain briefly why each is required.
+- 2 to 4 current diagnostic/confirmatory tests (e.g., Punch Biopsy, Dermoscopy pattern, Direct Immunofluorescence, Blood panel). One line each on why it's indicated.
 
-### 💊 Recommended Treatments
-- **First-line / Topical:** Standard topical or primary therapies.
-- **Systemic / Procedural:** Second-line, systemic treatments, or procedural interventions.
+### 💊 Recommended Treatments & Medications
+- **First-line / Topical:** Name specific drugs, typical strength, and regimen (e.g., "Imiquimod 5% cream, 3x/week for 6 weeks").
+- **Systemic / Procedural:** Second-line drugs or procedures with typical dosing/route.
 
-Also generate exactly 4 relevant follow-up questions tailored to {disease_label}.
+### 🛡️ Key Precautions
+- 2 critical precautions or infection-control measures.
 
-Provide a direct, structured clinical answer to the query.
-2. Generate 4 new, contextual follow-up questions that the DOCTOR or USER WOULD ASK YOU NEXT based on this response.
-(Do NOT generate questions directed at the user).
-
-Output MUST be valid JSON:
-{{
-    "answer": "markdown string answer",
-    "questions": [
-        "follow-up question 1",
-        "follow-up question 2",
-        "follow-up question 3",
-        "follow-up question 4"
-    ]
-}}
-"""
-
-    response = chat.invoke(
-        {
-            "disease_label": disease_label,
-            "context": combined_context,
-            "input": request,
-        },
-        config={"configurable": {"session_id": session_id}},
-    )
-
-    text = response.content.strip()
-    text = re.sub(r"```json|```", "", text).strip()
-
-    try:
-        data = json.loads(text)
-        briefing = data.get("briefing", "").strip()
-        questions = data.get("questions", [])
-
-        if not isinstance(questions, list):
-            questions = []
-
-        questions = [str(q).strip() for q in questions if str(q).strip()][:4]
-        return briefing, questions
-
-    except Exception as e:
-        print("JSON parsing failed, falling back:", e)
-        default_briefing = f"""### ⚠️ Severity & Malignancy
-- **Risk Level:** Clinical confirmation required (Rule out malignancy).
-- **Clinical Severity:** Variable severity depending on lesion presentation.
-
-### 🧪 Diagnostic Tests Required
-- **Dermoscopy:** Inspection of vascular patterns and pigment distribution.
-- **Skin Biopsy:** Punch or shave biopsy for histopathological evaluation.
-
-### 💊 Recommended Treatments
-- **First-line:** Topical therapeutic agents.
-- **Specialist Care:** Consultation with a dermatologist."""
-
-        return default_briefing, [
-            f"What specific biopsy is needed for {disease_label}?",
-            f"Is {disease_label} malignant or benign?",
-            f"What are the best treatments for {disease_label}?",
-            f"What warning signs require immediate care?",
-        ]
-
-
-# ============================================================
-# CONVERSATIONAL CHATBOT WITH DYNAMIC QUESTIONS
-# ============================================================
-
-
-def query_chat_bot(
-    user_input: str,
-    disease_label: str = "Unknown skin condition",
-    session_id: str = "default",
-):
-    """Answers user queries and generates fresh follow-up questions based on the prompt."""
-    context = search_web(disease=disease_label, query_type="general", question=user_input)
-
-    chain = prompt | model
-    chat = RunnableWithMessageHistory(
-        chain,
-        get_session_history,
-        input_messages_key="input",
-        history_messages_key="chat_history",
-    )
-
-    request = f"""
-User Query: "{user_input}"
-
-1. Provide a direct, structured clinical answer to the user query.
-2. Generate 4 new, contextual follow-up questions the user might ask next based on what you just answered.
-
-Output MUST be valid JSON:
-{{
-    "answer": "markdown string answer",
-    "questions": [
-        "follow-up question 1",
-        "follow-up question 2",
-        "follow-up question 3",
-        "follow-up question 4"
-    ]
-}}
+===QUESTIONS===
+- Provide exactly 4 short follow-up questions a CLINICIAN would ask YOU (the AI) next about {disease_label}.
 """
 
     response = chat.invoke(
@@ -264,24 +268,165 @@ Output MUST be valid JSON:
         config={"configurable": {"session_id": session_id}},
     )
 
-    text = response.content.strip()
-    text = re.sub(r"```json|```", "", text).strip()
+    default_qs = [
+        f"What are the main differential diagnoses for {disease_label}?",
+        f"What specific biopsy technique is indicated for {disease_label}?",
+        f"What are the standard dosages for first-line therapies?",
+        f"What complications should be monitored?",
+    ]
 
-    try:
-        data = json.loads(text)
-        answer = data.get("answer", "").strip()
-        questions = data.get("questions", [])
+    briefing, questions = parse_clean_output(response.content, default_qs)
+    risk_badge = extract_risk_level(response.content)
+    return briefing, questions, risk_badge
 
-        if not isinstance(questions, list):
-            questions = []
 
-        questions = [str(q).strip() for q in questions if str(q).strip()][:4]
-        return answer, questions
-    except Exception:
-        # Fallback if the model outputs regular text
-        return text, [
-            "What are the side effects of this treatment?",
-            "What diagnostic tests should I request from my doctor?",
-            "What symptoms indicate a worsening condition?",
-            "What are non-medical lifestyle changes that help?",
-        ]
+def generate_initial_content_stream(disease_label: str, session_id: str):
+    """Streams the briefing token-by-token for a Claude-like typing feel.
+    Yields display-ready partial markdown (the ===QUESTIONS=== tail is
+    withheld from display). Final yield includes the parsed questions and
+    risk badge as a 3-tuple: (full_text, questions, risk_badge)."""
+    context = search_initial_briefing(disease_label)
+    chat = _make_chat(briefing_model)
+
+    request = f"""
+Using the web context provided, create a structured clinical briefing for '{disease_label}'.
+
+Format the response using this exact structure:
+
+### ⚠️ Severity & Malignancy
+- **Risk Level:** Benign / Pre-malignant / Malignant (pick exactly one word)
+- **Clinical Severity:** Expected course and key warning signs.
+
+### 🧪 Diagnostic Tests Required
+- 2 to 4 current diagnostic/confirmatory tests (e.g., Punch Biopsy, Dermoscopy pattern, Direct Immunofluorescence, Blood panel). One line each on why it's indicated.
+
+### 💊 Recommended Treatments & Medications
+- **First-line / Topical:** Name specific drugs, typical strength, and regimen (e.g., "Imiquimod 5% cream, 3x/week for 6 weeks").
+- **Systemic / Procedural:** current clinical advancement in treatment and Second-line drugs or procedures with typical dosing/route.
+
+### 🛡️ Key Precautions
+- 2 critical precautions or infection-control measures.
+
+===QUESTIONS===
+- Provide exactly 4 short follow-up questions a CLINICIAN would ask YOU (the AI) next about {disease_label}.
+"""
+
+    buffer = ""
+    cutoff_shown = False
+    for chunk in chat.stream(
+        {
+            "disease_label": disease_label,
+            "context": context,
+            "input": request,
+        },
+        config={"configurable": {"session_id": session_id}},
+    ):
+        piece = chunk.content or ""
+        buffer += piece
+        if "===QUESTIONS===" in buffer and not cutoff_shown:
+            cutoff_shown = True
+        display_text = buffer.split("===QUESTIONS===")[0].strip()
+        yield display_text, None, None
+
+    default_qs = [
+        f"What are the main differential diagnoses for {disease_label}?",
+        f"What specific biopsy technique is indicated for {disease_label}?",
+        f"What are the standard dosages for first-line therapies?",
+        f"What complications should be monitored?",
+    ]
+    briefing, questions = parse_clean_output(buffer, default_qs)
+    risk_badge = extract_risk_level(buffer)
+    yield briefing, questions, risk_badge
+
+
+# ============================================================
+# CHATBOT QUERY (non-streaming, kept for compatibility)
+# ============================================================
+
+
+def query_chat_bot(
+    user_input: str,
+    disease_label: str = "Unknown skin condition",
+    session_id: str = "default",
+):
+    context = (
+        search_followup(disease_label, user_input)
+        if needs_search(user_input)
+        else ""
+    )
+
+    chat = _make_chat(chat_model)
+
+    request = f"""
+User Query: "{user_input}"
+
+Provide a direct, structured clinical answer with bullet points. Be concise.
+
+===QUESTIONS===
+- List 4 short follow-up questions a CLINICIAN would ask the AI next based on this response.
+"""
+
+    response = chat.invoke(
+        {
+            "disease_label": disease_label,
+            "context": context,
+            "input": request,
+        },
+        config={"configurable": {"session_id": session_id}},
+    )
+
+    default_qs = [
+        f"What are the differential diagnoses for {disease_label}?",
+        f"What additional confirmatory tests should be ordered?",
+        f"What are common side effects of this treatment?",
+        f"What precautions help prevent recurrence?",
+    ]
+
+    return parse_clean_output(response.content, default_qs)
+
+
+def query_chat_bot_stream(
+    user_input: str,
+    disease_label: str = "Unknown skin condition",
+    session_id: str = "default",
+):
+    """Streams the chat answer. Yields partial display text, and a final
+    (full_text, questions) tuple as the last yield."""
+    context = (
+        search_followup(disease_label, user_input)
+        if needs_search(user_input)
+        else ""
+    )
+
+    chat = _make_chat(chat_model)
+
+    request = f"""
+User Query: "{user_input}"
+
+Provide a direct, structured clinical answer with bullet points. Be concise.
+
+===QUESTIONS===
+- List 4 short follow-up questions a CLINICIAN would ask the AI next based on this response.
+"""
+
+    buffer = ""
+    for chunk in chat.stream(
+        {
+            "disease_label": disease_label,
+            "context": context,
+            "input": request,
+        },
+        config={"configurable": {"session_id": session_id}},
+    ):
+        buffer += chunk.content or ""
+        display_text = buffer.split("===QUESTIONS===")[0].strip()
+        yield display_text, None
+
+    default_qs = [
+        f"What are the differential diagnoses for {disease_label}?",
+        f"What additional confirmatory tests should be ordered?",
+        f"What are common side effects of this treatment?",
+        f"What precautions help prevent recurrence?",
+    ]
+    answer, questions = parse_clean_output(buffer, default_qs)
+    yield answer, questions

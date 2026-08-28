@@ -1,9 +1,9 @@
-import json
 import os
+import re
 import uuid
 
 # ============================================================
-# SSL FIX (Must be placed before any other imports)
+# SSL FIX (Must be placed before external imports)
 # ============================================================
 
 os.environ.pop("SSL_CERT_FILE", None)
@@ -17,12 +17,11 @@ os.environ.pop("CURL_CA_BUNDLE", None)
 import gradio as gr
 import spaces
 import torch
-from PIL import Image
 from transformers import AutoImageProcessor, AutoModelForImageClassification
 from web_rag_agent import (
     clear_session_history,
-    generate_initial_content,
-    query_chat_bot,
+    generate_initial_content_stream,
+    query_chat_bot_stream,
 )
 
 # ============================================================
@@ -44,7 +43,7 @@ print("=" * 65)
 
 
 # ============================================================
-# HELPER FUNCTIONS
+# HELPERS
 # ============================================================
 
 
@@ -52,71 +51,20 @@ def new_session():
     return str(uuid.uuid4())
 
 
-def parse_llm_response(briefing_raw, questions_raw):
-    """Ensures briefing markdown and question list format properly without JSON residue."""
-    clean_briefing = briefing_raw
-    clean_questions = questions_raw or []
-
-    if isinstance(briefing_raw, dict):
-        clean_briefing = briefing_raw.get(
-            "briefing", briefing_raw.get("answer", str(briefing_raw))
-        )
-        clean_questions = briefing_raw.get("questions", clean_questions)
-    elif isinstance(briefing_raw, str) and briefing_raw.strip().startswith("{"):
-        try:
-            parsed = json.loads(briefing_raw)
-            clean_briefing = parsed.get(
-                "briefing", parsed.get("answer", briefing_raw)
-            )
-            if "questions" in parsed and not clean_questions:
-                clean_questions = parsed.get("questions", [])
-        except Exception:
-            clean_briefing = briefing_raw.replace('\\"', '"')
-
-    if isinstance(clean_briefing, str):
-        clean_briefing = clean_briefing.replace("\\n", "\n").strip()
-
-    if isinstance(clean_questions, list):
-        clean_questions = [
-            str(q).strip() for q in clean_questions if str(q).strip()
-        ]
-    else:
-        clean_questions = []
-
-    return clean_briefing, clean_questions
-
-
 # ============================================================
-# CLASSIFY IMAGE & START CONSULTATION (ZeroGPU decorated)
+# CLASSIFY IMAGE (fast, GPU, no LLM call here)
 # ============================================================
 
 
 @spaces.GPU
-def classify_and_start_chat(image, old_session_id):
-    if image is None:
-        return (
-            [],
-            "Please upload a dermoscopic skin image first.",
-            None,
-            old_session_id,
-            gr.update(choices=[], value=None),
-        )
-
-    if old_session_id:
-        clear_session_history(old_session_id)
-
-    fresh_session_id = new_session()
-
-    # Move model to active device in ZeroGPU
+def classify_only(image):
     device = "cuda" if torch.cuda.is_available() else "cpu"
     model.to(device)
 
-    # Preprocess Image
     image = image.convert("RGB")
     inputs = processor(images=image, return_tensors="pt")
     inputs = {k: v.to(device) for k, v in inputs.items()}
 
-    # Model Inference
     with torch.inference_mode():
         outputs = model(**inputs)
         probabilities = torch.softmax(outputs.logits, dim=1)
@@ -124,122 +72,222 @@ def classify_and_start_chat(image, old_session_id):
 
     predicted_class = model.config.id2label[prediction_id.item()]
     confidence_percentage = confidence.item() * 100
+    return predicted_class, confidence_percentage
 
-    result_md = (
-        f"**Predicted Condition:** `{predicted_class}`  \n"
-        f"**Model Confidence:** `{confidence_percentage:.1f}%`"
+
+# ============================================================
+# FORMATTING HELPERS (new — used for the redesigned result card)
+# ============================================================
+
+
+def strip_followup_section(text):
+    """The LLM sometimes writes its own "Follow-up Questions a Clinician
+    Might Ask" section directly into the briefing/answer text — duplicating
+    what already appears in the 'Suggested clinical inquiries' chip list
+    below the chat. Cut that section out of the chat text so each question
+    only shows up once, as a clickable chip, not as chat prose."""
+    if not text:
+        return text
+    heading_pattern = re.compile(
+        r"\n{0,2}#{0,4}\s*\**\s*(follow[\s-]?up questions|"
+        r"questions a clinician might ask|"
+        r"suggested (clinical )?(questions|inquiries)|"
+        r"you might also ask)[^\n]*\**\s*\n",
+        re.IGNORECASE,
     )
+    match = heading_pattern.search(text)
+    if match:
+        return text[: match.start()].rstrip()
+    return text
+
+
+def _confidence_tier(pct):
+    """Returns (label, css-class) for a confidence value, used to color
+    the confidence chip in the result card."""
+    if pct >= 85:
+        return "High confidence", "chip-high"
+    if pct >= 60:
+        return "Moderate confidence", "chip-mid"
+    return "Low confidence", "chip-low"
+
+
+def render_result_card(predicted_class, confidence_percentage, risk_badge=None, loading=False):
+    """Builds the HTML for the model-prediction card. Kept separate from
+    the streaming logic so the visual design lives in one place."""
+    tier_label, tier_class = _confidence_tier(confidence_percentage)
+    condition_display = predicted_class.replace("_", " ").title()
+
+    if loading:
+        risk_html = (
+            '<div class="risk-row risk-loading">'
+            '<span class="risk-dot"></span>'
+            '<span>Assessing risk level…</span>'
+            "</div>"
+        )
+    elif risk_badge:
+        risk_html = f'<div class="risk-row risk-ready">{risk_badge}</div>'
+    else:
+        risk_html = (
+            '<div class="risk-row risk-unknown">'
+            '<span class="risk-dot"></span>'
+            '<span>Risk level unclear</span>'
+            "</div>"
+        )
+
+    return f"""
+<div class="result-card">
+  <div class="result-card-label">Model Prediction</div>
+  <div class="result-condition">{condition_display}</div>
+  <div class="confidence-row">
+    <div class="confidence-track">
+      <div class="confidence-fill" style="width:{confidence_percentage:.1f}%"></div>
+    </div>
+    <span class="confidence-chip {tier_class}">{confidence_percentage:.1f}% · {tier_label}</span>
+  </div>
+  {risk_html}
+</div>
+"""
+
+
+# ============================================================
+# CLASSIFY + STREAM CONSULTATION
+# ============================================================
+
+
+def classify_and_start_chat(image, old_session_id):
+    """Generator: shows the classification result the instant it's ready
+    (fast, GPU-only step), then streams the clinical briefing in as it's
+    generated — Claude-style progressive text instead of one long wait."""
+
+    if image is None:
+        yield (
+            [],
+            '<div class="result-card result-card-empty">⚠️ Please upload a dermoscopic skin image first.</div>',
+            None,
+            old_session_id,
+            gr.update(choices=[], value=None),
+        )
+        return
+
+    if old_session_id:
+        clear_session_history(old_session_id)
+    fresh_session_id = new_session()
+
+    predicted_class, confidence_percentage = classify_only(image)
+
+    result_html = render_result_card(predicted_class, confidence_percentage, loading=True)
+
+    # Show the prediction immediately — don't make the user wait on the
+    # LLM/search step just to see what the model found.
+    history = [
+        {
+            "role": "assistant",
+            "content": "🔬 Analyzing the lesion and pulling current clinical guidance…",
+        }
+    ]
+    yield history, result_html, predicted_class, fresh_session_id, gr.update(choices=[], value=None)
+
+    briefing = ""
+    questions = []
+    risk_badge = None
 
     try:
-        raw_briefing, raw_questions = generate_initial_content(
-            disease_label=predicted_class,
-            session_id=fresh_session_id,
-        )
-        briefing, questions = parse_llm_response(raw_briefing, raw_questions)
+        for partial_text, partial_questions, partial_risk in generate_initial_content_stream(
+            disease_label=predicted_class, session_id=fresh_session_id
+        ):
+            briefing = strip_followup_section(partial_text)
+            if partial_questions is not None:
+                questions = partial_questions
+            if partial_risk is not None:
+                risk_badge = partial_risk
+
+            welcome_message = f"### 🔬 Lesion Analysis Complete\n\n{briefing}"
+            history = [{"role": "assistant", "content": welcome_message}]
+
+            live_result_html = render_result_card(
+                predicted_class,
+                confidence_percentage,
+                risk_badge=risk_badge,
+                loading=risk_badge is None,
+            )
+            yield history, live_result_html, predicted_class, fresh_session_id, gr.update()
     except Exception as e:
         print("Initial briefing error:", e)
-        briefing = "Clinical briefing could not be generated."
-        questions = []
+        history = [
+            {
+                "role": "assistant",
+                "content": "⚠️ Clinical briefing could not be generated. You can still ask questions below.",
+            }
+        ]
+        fallback_html = render_result_card(predicted_class, confidence_percentage, risk_badge=risk_badge)
+        yield history, fallback_html, predicted_class, fresh_session_id, gr.update(choices=[], value=None)
+        return
 
-    welcome_message = (
-        "### 🔬 Lesion Analysis Complete\n\n"
-        f"- **Predicted Condition:** `{predicted_class}`\n"
-        f"- **Model Confidence:** `{confidence_percentage:.1f}%`\n\n"
-        "---\n\n"
-        f"{briefing}\n\n"
-        "---\n\n"
-        "💡 **Suggested Questions**\n"
-        "Click any suggestion below or ask your own question below."
-    )
+    final_result_html = render_result_card(predicted_class, confidence_percentage, risk_badge=risk_badge)
 
-    history = [{"role": "assistant", "content": welcome_message}]
-    question_update = gr.update(choices=questions, value=None)
-
-    return (
+    yield (
         history,
-        result_md,
+        final_result_html,
         predicted_class,
         fresh_session_id,
-        question_update,
+        gr.update(choices=questions, value=None),
     )
 
 
 # ============================================================
-# CHAT HANDLERS
+# CHAT HANDLERS (streamed)
 # ============================================================
+
+
+def _stream_turn(user_message, history, predicted_class, session_id):
+    """Shared streaming logic for both the textbox and suggested-question flows."""
+    if not predicted_class:
+        yield history + [
+            {"role": "user", "content": user_message},
+            {"role": "assistant", "content": "⚠️ Please classify an image first."},
+        ], gr.update(choices=[], value=None)
+        return
+
+    working_history = history + [
+        {"role": "user", "content": user_message},
+        {"role": "assistant", "content": ""},
+    ]
+    questions = []
+
+    try:
+        for partial_answer, partial_questions in query_chat_bot_stream(
+            user_input=user_message,
+            disease_label=predicted_class,
+            session_id=session_id,
+        ):
+            working_history[-1]["content"] = strip_followup_section(partial_answer)
+            if partial_questions is not None:
+                questions = partial_questions
+            yield working_history, gr.update()
+    except Exception as e:
+        print("Chat error:", e)
+        working_history[-1]["content"] = "Sorry, I could not generate an answer."
+        yield working_history, gr.update(choices=[], value=None)
+        return
+
+    yield working_history, gr.update(choices=questions, value=None)
 
 
 def answer_suggested_question(question, history, predicted_class, session_id):
     if not question:
-        return history, gr.update()
-
-    if not predicted_class:
-        return (
-            history
-            + [
-                {
-                    "role": "assistant",
-                    "content": "⚠️ Please classify an image first.",
-                }
-            ],
-            gr.update(choices=[], value=None),
-        )
-
-    try:
-        raw_answer, raw_questions = query_chat_bot(
-            user_input=question,
-            disease_label=predicted_class,
-            session_id=session_id,
-        )
-        answer, questions = parse_llm_response(raw_answer, raw_questions)
-    except Exception as e:
-        print("Suggested question error:", e)
-        answer = "Sorry, I could not generate an answer."
-        questions = []
-
-    new_history = history + [
-        {"role": "user", "content": question},
-        {"role": "assistant", "content": answer},
-    ]
-
-    return new_history, gr.update(choices=questions, value=None)
+        yield history, gr.update()
+        return
+    yield from _stream_turn(question, history, predicted_class, session_id)
 
 
 def respond(message, history, predicted_class, session_id):
     if not message or not message.strip():
-        return history, "", gr.update()
-
-    if not predicted_class:
-        return (
-            history
-            + [
-                {
-                    "role": "assistant",
-                    "content": "⚠️ Please classify an image first.",
-                }
-            ],
-            "",
-            gr.update(choices=[], value=None),
-        )
-
-    try:
-        raw_answer, raw_questions = query_chat_bot(
-            user_input=message,
-            disease_label=predicted_class,
-            session_id=session_id,
-        )
-        answer, questions = parse_llm_response(raw_answer, raw_questions)
-    except Exception as e:
-        print("Chatbot error:", e)
-        answer = "Sorry, I could not generate an answer."
-        questions = []
-
-    new_history = history + [
-        {"role": "user", "content": message},
-        {"role": "assistant", "content": answer},
-    ]
-
-    return new_history, "", gr.update(choices=questions, value=None)
+        yield history, "", gr.update()
+        return
+    for new_history, question_update in _stream_turn(
+        message, history, predicted_class, session_id
+    ):
+        yield new_history, "", question_update
 
 
 def reset_app(session_id):
@@ -257,58 +305,378 @@ def reset_app(session_id):
 
 
 # ============================================================
+# THEME + CSS
+# ============================================================
+# Design language: a clinical-decision-support tool needs to read as
+# precise and trustworthy first, friendly second. Deep teal (clinical,
+# calm, associated with scrubs/sterility) is the primary color; a warm
+# coral is reserved only for risk/urgency signaling so it stays
+# meaningful instead of decorative. Body copy is set in Inter for
+# maximum legibility at small sizes; headings use Fraunces for a touch
+# of editorial authority; numeric data (confidence, %) uses a mono face
+# so figures align and read as measurements, not prose.
+
+THEME = gr.themes.Soft(
+    primary_hue=gr.themes.colors.teal,
+    secondary_hue=gr.themes.colors.orange,
+    neutral_hue=gr.themes.colors.slate,
+    font=[gr.themes.GoogleFont("Inter"), "ui-sans-serif", "system-ui", "sans-serif"],
+    font_mono=[gr.themes.GoogleFont("JetBrains Mono"), "ui-monospace", "monospace"],
+).set(
+    body_background_fill="#F4F7F7",
+    block_background_fill="#FFFFFF",
+    block_border_width="1px",
+    block_border_color="#E3E9E8",
+    block_radius="16px",
+    block_shadow="0 1px 3px rgba(15, 61, 59, 0.06)",
+    button_primary_background_fill="#0F6B67",
+    button_primary_background_fill_hover="#0C5652",
+    button_primary_text_color="#FFFFFF",
+    button_secondary_background_fill="#FFFFFF",
+    button_secondary_border_color="#0F6B67",
+    button_secondary_text_color="#0F6B67",
+    input_background_fill="#FFFFFF",
+    input_border_color="#D8E2E1",
+    input_border_color_focus="#0F6B67",
+)
+
+CUSTOM_CSS = """
+@import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap');
+
+:root {
+  --teal-900: #0B3D3B;
+  --teal-700: #0F6B67;
+  --teal-500: #2E9490;
+  --teal-100: #E6F1F0;
+  --coral-600: #D9503F;
+  --coral-100: #FBE7E3;
+  --amber-600: #C77E1E;
+  --amber-100: #FBF0DC;
+  --green-600: #2F9E58;
+  --green-100: #E4F5EA;
+  --ink-900: #16241F;
+  --ink-600: #4B5A57;
+}
+
+.gradio-container {
+  font-family: 'Inter', ui-sans-serif, system-ui, sans-serif !important;
+  max-width: 1320px !important;
+}
+
+/* ---------- Header ---------- */
+.app-header {
+  background: linear-gradient(120deg, var(--teal-900) 0%, var(--teal-700) 65%, var(--teal-500) 100%);
+  border-radius: 20px;
+  padding: 32px 36px;
+  margin-bottom: 22px;
+  color: #F4FAF9;
+  box-shadow: 0 10px 30px rgba(11, 61, 59, 0.18);
+}
+.app-header h1 {
+  font-family: 'Fraunces', serif !important;
+  font-weight: 600 !important;
+  font-size: 2.1rem !important;
+  margin: 0 0 6px 0 !important;
+  color: #FFFFFF !important;
+  letter-spacing: -0.01em;
+}
+.app-header p {
+  color: #D9EEEC !important;
+  font-size: 1rem !important;
+  max-width: 760px;
+  line-height: 1.55 !important;
+  margin: 0 !important;
+}
+.app-header .badge-row {
+  display: flex;
+  gap: 8px;
+  margin-top: 16px;
+  flex-wrap: wrap;
+}
+.app-header .pill {
+  background: rgba(255,255,255,0.12);
+  border: 1px solid rgba(255,255,255,0.25);
+  color: #F4FAF9;
+  padding: 5px 12px;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 500;
+}
+
+/* ---------- Section labels ---------- */
+.section-label {
+  font-family: 'Fraunces', serif !important;
+  font-weight: 600 !important;
+  font-size: 1.15rem !important;
+  color: var(--teal-900) !important;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px !important;
+}
+.section-label .step-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--teal-100);
+  color: var(--teal-700);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+/* ---------- Result card ---------- */
+.result-card {
+  background: #FFFFFF;
+  border: 1px solid #E3E9E8;
+  border-radius: 16px;
+  padding: 20px 22px;
+  margin-top: 4px;
+}
+.result-card-empty {
+  color: var(--coral-600);
+  font-weight: 500;
+  text-align: center;
+  padding: 28px 20px;
+}
+.result-card-label {
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--ink-600);
+  margin-bottom: 6px;
+}
+.result-condition {
+  font-family: 'Fraunces', serif;
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: var(--teal-900);
+  margin-bottom: 14px;
+}
+.confidence-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.confidence-track {
+  flex: 1;
+  height: 8px;
+  background: var(--teal-100);
+  border-radius: 999px;
+  overflow: hidden;
+}
+.confidence-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--teal-500), var(--teal-700));
+  border-radius: 999px;
+}
+.confidence-chip {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+.chip-high { background: var(--green-100); color: var(--green-600); }
+.chip-mid  { background: var(--amber-100); color: var(--amber-600); }
+.chip-low  { background: var(--coral-100); color: var(--coral-600); }
+
+.risk-row {
+  border-top: 1px dashed #E3E9E8;
+  padding-top: 12px;
+  font-size: 0.92rem;
+  color: var(--ink-900);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.risk-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--ink-600);
+  flex-shrink: 0;
+}
+.risk-loading .risk-dot {
+  background: var(--amber-600);
+  animation: pulse 1.1s ease-in-out infinite;
+}
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+/* ---------- Upload + buttons ---------- */
+#upload-col .image-container, #upload-col [data-testid="image"] {
+  border-radius: 14px !important;
+}
+button#classify-btn, .primary-cta {
+  font-weight: 600 !important;
+  font-size: 1rem !important;
+  border-radius: 12px !important;
+  padding: 12px 18px !important;
+  letter-spacing: 0.01em;
+}
+button#reset-btn {
+  border-radius: 12px !important;
+  font-weight: 500 !important;
+}
+
+/* ---------- Chatbot ---------- */
+#clinical-chatbot {
+  border-radius: 16px !important;
+  border: 1px solid #E3E9E8 !important;
+}
+#clinical-chatbot .message-wrap { padding: 4px 8px; }
+#clinical-chatbot .message {
+  border-radius: 14px !important;
+  font-size: 0.98rem !important;
+  line-height: 1.6 !important;
+}
+#clinical-chatbot .bot {
+  background: var(--teal-100) !important;
+  border: 1px solid #D3E7E5 !important;
+}
+#clinical-chatbot .user {
+  background: #FFFFFF !important;
+  border: 1px solid #E3E9E8 !important;
+}
+
+/* ---------- Suggested questions as chips ---------- */
+#suggested-questions .wrap {
+  display: flex !important;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+#suggested-questions label {
+  border: 1px solid var(--teal-500) !important;
+  background: #FFFFFF !important;
+  color: var(--teal-900) !important;
+  border-radius: 999px !important;
+  padding: 8px 16px !important;
+  font-size: 0.88rem !important;
+  font-weight: 500 !important;
+  transition: background 0.15s ease, color 0.15s ease;
+  cursor: pointer;
+}
+#suggested-questions label:hover {
+  background: var(--teal-100) !important;
+}
+#suggested-questions input[type="radio"] {
+  /* keep for screen readers / keyboard nav, hide visually */
+  width: 1px; height: 1px; opacity: 0; position: absolute;
+}
+#suggested-questions input[type="radio"]:checked + span {
+  color: var(--teal-700) !important;
+}
+#suggested-questions input[type="radio"]:focus-visible ~ * {
+  outline: 2px solid var(--teal-700);
+  outline-offset: 2px;
+}
+
+/* ---------- Message input row ---------- */
+#msg-row { align-items: flex-end; gap: 8px; }
+#msg-input textarea {
+  border-radius: 12px !important;
+  font-size: 0.98rem !important;
+}
+
+/* ---------- Accessibility: visible focus states everywhere ---------- */
+button:focus-visible, textarea:focus-visible, input:focus-visible, [role="radio"]:focus-visible {
+  outline: 3px solid var(--teal-700) !important;
+  outline-offset: 2px !important;
+}
+
+/* Respect reduced-motion preference */
+@media (prefers-reduced-motion: reduce) {
+  .risk-loading .risk-dot { animation: none; }
+}
+
+/* ---------- Responsive ---------- */
+@media (max-width: 900px) {
+  .app-header { padding: 24px 20px; }
+  .app-header h1 { font-size: 1.6rem !important; }
+}
+"""
+
+
+# ============================================================
 # GRADIO INTERFACE
 # ============================================================
 
-with gr.Blocks(title="Skin AI — Clinical Decision Support") as demo:
+with gr.Blocks(title="Skin AI — Clinical Decision Support", theme=THEME, css=CUSTOM_CSS) as demo:
 
     session_id_state = gr.State(new_session())
     predicted_class_state = gr.State(None)
 
-    gr.Markdown(
+    gr.HTML(
         """
-# 👨‍⚕️ Skin AI — Clinical Decision Support
-
-Upload a dermoscopic skin image to classify the condition.
-
-The system provides an immediate clinical briefing covering **Severity, Malignancy, Diagnostic Tests (via DuckDuckGo), and First-line Treatments**.
-"""
+        <div class="app-header">
+          <h1>🩺 Skin AI — Clinical Decision Support</h1>
+          <p>
+            Upload a dermoscopic skin image for instant classification, a risk read,
+            recommended diagnostic tests, and first-line treatment guidance —
+            built for clinician use.
+          </p>
+          <div class="badge-row">
+            <span class="pill">Real-time classification</span>
+            <span class="pill">Evidence-linked briefing</span>
+            <span class="pill">Interactive follow-up Q&amp;A</span>
+          </div>
+        </div>
+        """
     )
 
-    with gr.Row():
-        with gr.Column(scale=2):
-            gr.Markdown("### 1. Image Classification")
+    with gr.Row(equal_height=False):
+        with gr.Column(scale=2, elem_id="upload-col"):
+            gr.Markdown('<div class="section-label"><span class="step-num">1</span> Image Classification</div>')
             image_input = gr.Image(
                 type="pil",
-                label="Upload Dermoscopic Image",
+                label="Upload dermoscopic image",
+                elem_id="image-input",
             )
             classify_btn = gr.Button(
                 "🔬 Classify & Start Consultation",
                 variant="primary",
+                elem_id="classify-btn",
             )
-            result_md = gr.Markdown()
+            result_md = gr.HTML(
+                '<div class="result-card result-card-empty">Upload an image to see the model\'s prediction here.</div>'
+            )
             reset_btn = gr.Button(
                 "🔄 Reset Consultation",
                 variant="secondary",
+                elem_id="reset-btn",
             )
 
         with gr.Column(scale=3):
-            gr.Markdown("### 2. Clinical AI Assistant")
+            gr.Markdown('<div class="section-label"><span class="step-num">2</span> Clinical AI Assistant</div>')
             chatbot = gr.Chatbot(
-                height=480,
+                height=460,
                 label="Clinical AI Assistant",
+                elem_id="clinical-chatbot",
+    
             )
             suggested_questions = gr.Radio(
                 choices=[],
                 value=None,
-                label="💡 Dynamic Suggested Questions",
+                label="💡 Suggested clinical inquiries",
                 interactive=True,
+                elem_id="suggested-questions",
             )
-            msg_input = gr.Textbox(
-                placeholder="Ask about tests, symptoms, alternatives, recovery...",
-                label=None,
-            )
-            send_btn = gr.Button("Send Question", variant="primary")
+            with gr.Row(elem_id="msg-row"):
+                msg_input = gr.Textbox(
+                    placeholder="Ask about tests, symptoms, alternatives, precautions…",
+                    label="Your question",
+                    show_label=False,
+                    scale=5,
+                    elem_id="msg-input",
+                )
+                send_btn = gr.Button("Send", variant="primary", scale=1, elem_id="send-btn")
 
     # Event Listeners
     classify_btn.click(
@@ -374,4 +742,4 @@ The system provides an immediate clinical briefing covering **Severity, Malignan
 # ============================================================
 
 if __name__ == "__main__":
-    demo.launch(theme=gr.themes.Soft())
+    demo.launch()
