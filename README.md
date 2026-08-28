@@ -25,6 +25,10 @@ clinical assistant.
 - DuckDuckGo web search for relevant clinical information
 - Groq-powered conversational assistant
 
+## link for project
+https://huggingface.co/spaces/shindevaishnavi304/Skin-AI-Disease-detection
+
+
 ## Disclaimer
 
 This application is for educational and research purposes.
