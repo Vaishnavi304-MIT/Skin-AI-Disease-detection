@@ -367,6 +367,8 @@ CUSTOM_CSS = """
 .gradio-container {
   font-family: 'Inter', ui-sans-serif, system-ui, sans-serif !important;
   max-width: 1320px !important;
+  margin-left: auto !important;
+  margin-right: auto !important;
 }
 
 /* ---------- Header ---------- */
@@ -377,6 +379,7 @@ CUSTOM_CSS = """
   margin-bottom: 22px;
   color: #F4FAF9;
   box-shadow: 0 10px 30px rgba(11, 61, 59, 0.18);
+  text-align: center;
 }
 .app-header h1 {
   font-family: 'Fraunces', serif !important;
@@ -391,10 +394,11 @@ CUSTOM_CSS = """
   font-size: 1rem !important;
   max-width: 760px;
   line-height: 1.55 !important;
-  margin: 0 !important;
+  margin: 0 auto !important;
 }
 .app-header .badge-row {
   display: flex;
+  justify-content: center;
   gap: 8px;
   margin-top: 16px;
   flex-wrap: wrap;
@@ -665,7 +669,6 @@ with gr.Blocks(title="Skin AI — Clinical Decision Support", theme=THEME, css=C
                 height=460,
                 label="Clinical AI Assistant",
                 elem_id="clinical-chatbot",
-
             )
             suggested_questions = gr.Radio(
                 choices=[],
