@@ -119,8 +119,8 @@ def strip_followup_section(text):
         return text
 
     heading_pattern = re.compile(
-        r"\n{0,2}#{0,4}\s*\*\*"
-        r"\s*(follow[\s-]?up questions|"
+        r"\n{0,2}#{0,4}\s*\*\*\s*"
+        r"(follow[\s-]?up questions|"
         r"questions a clinician might ask|"
         r"suggested (clinical )?(questions|inquiries)|"
         r"you might also ask)"
@@ -186,9 +186,9 @@ def render_result_card(
     elif risk_badge:
 
         risk_html = (
-            f'<div class="risk-row risk-ready">'
+            '<div class="risk-row risk-ready">'
             f'{risk_badge}'
-            f'</div>'
+            '</div>'
         )
 
     else:
@@ -658,10 +658,11 @@ CUSTOM_CSS = """
 
 
 /* ============================================================
-   GLOBAL COLOR SETTINGS
+   GLOBAL
    ============================================================ */
 
 :root {
+
   color-scheme: light !important;
 
   --teal-900: #0B3D3B;
@@ -683,22 +684,25 @@ CUSTOM_CSS = """
 }
 
 
-/* ============================================================
-   MAIN GRADIO CONTAINER
-   ============================================================ */
-
 .gradio-container {
-  font-family: 'Inter',
+
+  font-family:
+    'Inter',
     ui-sans-serif,
     system-ui,
     sans-serif !important;
 
-  max-width: 1320px !important;
+  max-width:
+    1320px !important;
 
-  margin-left: auto !important;
-  margin-right: auto !important;
+  margin-left:
+    auto !important;
 
-  color-scheme: light !important;
+  margin-right:
+    auto !important;
+
+  color-scheme:
+    light !important;
 }
 
 
@@ -708,100 +712,128 @@ CUSTOM_CSS = """
 
 .app-header {
 
-  background: linear-gradient(
-    120deg,
-    var(--teal-900) 0%,
-    var(--teal-700) 65%,
-    var(--teal-500) 100%
-  );
+  background:
+    linear-gradient(
+      120deg,
+      var(--teal-900) 0%,
+      var(--teal-700) 65%,
+      var(--teal-500) 100%
+    );
 
-  border-radius: 20px;
+  border-radius:
+    20px;
 
-  padding: 32px 36px;
+  padding:
+    32px 36px;
 
-  margin-bottom: 22px;
+  margin-bottom:
+    22px;
 
-  color: #F4FAF9 !important;
+  color:
+    #F4FAF9 !important;
 
   box-shadow:
     0 10px 30px
     rgba(11, 61, 59, 0.18);
 
-  text-align: center;
+  text-align:
+    center;
 }
+
 
 .app-header h1 {
 
-  font-family: 'Fraunces', serif !important;
+  font-family:
+    'Fraunces',
+    serif !important;
 
-  font-weight: 600 !important;
+  font-weight:
+    600 !important;
 
-  font-size: 2.1rem !important;
+  font-size:
+    2.1rem !important;
 
-  margin: 0 0 6px 0 !important;
+  margin:
+    0 0 6px 0 !important;
 
-  color: #FFFFFF !important;
+  color:
+    #FFFFFF !important;
 
-  -webkit-text-fill-color: #FFFFFF !important;
+  -webkit-text-fill-color:
+    #FFFFFF !important;
 
-  letter-spacing: -0.01em;
+  letter-spacing:
+    -0.01em;
 }
+
 
 .app-header p {
 
-  color: #D9EEEC !important;
+  color:
+    #D9EEEC !important;
 
-  -webkit-text-fill-color: #D9EEEC !important;
+  -webkit-text-fill-color:
+    #D9EEEC !important;
 
-  font-size: 1rem !important;
+  font-size:
+    1rem !important;
 
-  max-width: 760px;
+  max-width:
+    760px;
 
-  line-height: 1.55 !important;
+  line-height:
+    1.55 !important;
 
-  margin: 0 auto !important;
+  margin:
+    0 auto !important;
 }
+
 
 .app-header .badge-row {
 
-  display: flex;
+  display:
+    flex;
 
-  justify-content: center;
+  justify-content:
+    center;
 
-  gap: 8px;
+  gap:
+    8px;
 
-  margin-top: 16px;
+  margin-top:
+    16px;
 
-  flex-wrap: wrap;
+  flex-wrap:
+    wrap;
 }
+
 
 .app-header .pill {
 
-  background: rgba(
-    255,
-    255,
-    255,
-    0.12
-  );
+  background:
+    rgba(255,255,255,0.12);
 
-  border: 1px solid rgba(
-    255,
-    255,
-    255,
-    0.25
-  );
+  border:
+    1px solid
+    rgba(255,255,255,0.25);
 
-  color: #F4FAF9 !important;
+  color:
+    #F4FAF9 !important;
 
-  -webkit-text-fill-color: #F4FAF9 !important;
+  -webkit-text-fill-color:
+    #F4FAF9 !important;
 
-  padding: 5px 12px;
+  padding:
+    5px 12px;
 
-  border-radius: 999px;
+  border-radius:
+    999px;
 
-  font-size: 0.78rem;
+  font-size:
+    0.78rem;
 
-  font-weight: 500;
+  font-weight:
+    500;
 }
 
 
@@ -811,43 +843,61 @@ CUSTOM_CSS = """
 
 .section-label {
 
-  font-family: 'Fraunces', serif !important;
+  font-family:
+    'Fraunces',
+    serif !important;
 
-  font-weight: 600 !important;
+  font-weight:
+    600 !important;
 
-  font-size: 1.15rem !important;
+  font-size:
+    1.15rem !important;
 
-  color: var(--teal-900) !important;
+  color:
+    var(--teal-900) !important;
 
   -webkit-text-fill-color:
     var(--teal-900) !important;
 
-  display: flex;
+  display:
+    flex;
 
-  align-items: center;
+  align-items:
+    center;
 
-  gap: 8px;
+  gap:
+    8px;
 
-  margin-bottom: 4px !important;
+  margin-bottom:
+    4px !important;
 }
+
 
 .section-label .step-num {
 
-  display: inline-flex;
+  display:
+    inline-flex;
 
-  align-items: center;
+  align-items:
+    center;
 
-  justify-content: center;
+  justify-content:
+    center;
 
-  width: 24px;
+  width:
+    24px;
 
-  height: 24px;
+  height:
+    24px;
 
-  border-radius: 50%;
+  border-radius:
+    50%;
 
-  background: var(--teal-100);
+  background:
+    var(--teal-100);
 
-  color: var(--teal-700) !important;
+  color:
+    var(--teal-700) !important;
 
   -webkit-text-fill-color:
     var(--teal-700) !important;
@@ -856,9 +906,11 @@ CUSTOM_CSS = """
     'JetBrains Mono',
     monospace;
 
-  font-size: 0.75rem;
+  font-size:
+    0.75rem;
 
-  font-weight: 600;
+  font-weight:
+    600;
 }
 
 
@@ -868,47 +920,75 @@ CUSTOM_CSS = """
 
 .result-card {
 
-  background: #FFFFFF !important;
+  background:
+    #FFFFFF !important;
 
-  border: 1px solid #E3E9E8;
+  border:
+    1px solid #E3E9E8;
 
-  border-radius: 16px;
+  border-radius:
+    16px;
 
-  padding: 20px 22px;
+  padding:
+    20px 22px;
 
-  margin-top: 4px;
+  margin-top:
+    4px;
 
-  color: var(--ink-900) !important;
+  color:
+    var(--ink-900) !important;
 
   -webkit-text-fill-color:
     var(--ink-900) !important;
 
-  color-scheme: light !important;
+  color-scheme:
+    light !important;
 }
 
 
-/* IMPORTANT:
-   Explicit colors for result card children.
-   This prevents mobile dark-mode inheritance.
-*/
+.result-card-empty {
+
+  color:
+    var(--coral-600) !important;
+
+  -webkit-text-fill-color:
+    var(--coral-600) !important;
+
+  font-weight:
+    500;
+
+  text-align:
+    center;
+
+  padding:
+    28px 20px;
+}
+
 
 .result-card .result-card-label {
 
-  text-transform: uppercase;
+  text-transform:
+    uppercase;
 
-  letter-spacing: 0.08em;
+  letter-spacing:
+    0.08em;
 
-  font-size: 0.72rem;
+  font-size:
+    0.72rem;
 
-  font-weight: 600;
+  font-weight:
+    600;
 
-  color: var(--ink-600) !important;
+  color:
+    var(--ink-600) !important;
 
   -webkit-text-fill-color:
     var(--ink-600) !important;
 
-  margin-bottom: 6px;
+  margin-bottom:
+    6px;
 }
+
 
 .result-card .result-condition {
 
@@ -916,16 +996,20 @@ CUSTOM_CSS = """
     'Fraunces',
     serif !important;
 
-  font-size: 1.5rem;
+  font-size:
+    1.5rem;
 
-  font-weight: 600;
+  font-weight:
+    600;
 
-  color: var(--teal-900) !important;
+  color:
+    var(--teal-900) !important;
 
   -webkit-text-fill-color:
     var(--teal-900) !important;
 
-  margin-bottom: 14px;
+  margin-bottom:
+    14px;
 }
 
 
@@ -935,40 +1019,55 @@ CUSTOM_CSS = """
 
 .confidence-row {
 
-  display: flex;
+  display:
+    flex;
 
-  align-items: center;
+  align-items:
+    center;
 
-  gap: 12px;
+  gap:
+    12px;
 
-  margin-bottom: 16px;
+  margin-bottom:
+    16px;
 }
+
 
 .confidence-track {
 
-  flex: 1;
+  flex:
+    1;
 
-  height: 8px;
+  height:
+    8px;
 
-  background: var(--teal-100);
+  background:
+    var(--teal-100);
 
-  border-radius: 999px;
+  border-radius:
+    999px;
 
-  overflow: hidden;
+  overflow:
+    hidden;
 }
+
 
 .confidence-fill {
 
-  height: 100%;
+  height:
+    100%;
 
-  background: linear-gradient(
-    90deg,
-    var(--teal-500),
-    var(--teal-700)
-  );
+  background:
+    linear-gradient(
+      90deg,
+      var(--teal-500),
+      var(--teal-700)
+    );
 
-  border-radius: 999px;
+  border-radius:
+    999px;
 }
+
 
 .confidence-chip {
 
@@ -976,42 +1075,56 @@ CUSTOM_CSS = """
     'JetBrains Mono',
     monospace;
 
-  font-size: 0.75rem;
+  font-size:
+    0.75rem;
 
-  font-weight: 600;
+  font-weight:
+    600;
 
-  padding: 4px 10px;
+  padding:
+    4px 10px;
 
-  border-radius: 999px;
+  border-radius:
+    999px;
 
-  white-space: nowrap;
+  white-space:
+    nowrap;
 }
+
 
 .chip-high {
 
-  background: var(--green-100) !important;
+  background:
+    var(--green-100) !important;
 
-  color: var(--green-600) !important;
+  color:
+    var(--green-600) !important;
 
   -webkit-text-fill-color:
     var(--green-600) !important;
 }
 
+
 .chip-mid {
 
-  background: var(--amber-100) !important;
+  background:
+    var(--amber-100) !important;
 
-  color: var(--amber-600) !important;
+  color:
+    var(--amber-600) !important;
 
   -webkit-text-fill-color:
     var(--amber-600) !important;
 }
 
+
 .chip-low {
 
-  background: var(--coral-100) !important;
+  background:
+    var(--coral-100) !important;
 
-  color: var(--coral-600) !important;
+  color:
+    var(--coral-600) !important;
 
   -webkit-text-fill-color:
     var(--coral-600) !important;
@@ -1019,7 +1132,7 @@ CUSTOM_CSS = """
 
 
 /* ============================================================
-   RISK ROW
+   RISK
    ============================================================ */
 
 .risk-row {
@@ -1027,43 +1140,57 @@ CUSTOM_CSS = """
   border-top:
     1px dashed #E3E9E8;
 
-  padding-top: 12px;
+  padding-top:
+    12px;
 
-  font-size: 0.92rem;
+  font-size:
+    0.92rem;
 
-  color: var(--ink-900) !important;
+  color:
+    var(--ink-900) !important;
 
   -webkit-text-fill-color:
     var(--ink-900) !important;
 
-  display: flex;
+  display:
+    flex;
 
-  align-items: center;
+  align-items:
+    center;
 
-  gap: 8px;
+  gap:
+    8px;
 }
+
 
 .risk-row span {
 
-  color: var(--ink-900) !important;
+  color:
+    var(--ink-900) !important;
 
   -webkit-text-fill-color:
     var(--ink-900) !important;
 }
 
+
 .risk-dot {
 
-  width: 8px;
+  width:
+    8px;
 
-  height: 8px;
+  height:
+    8px;
 
-  border-radius: 50%;
+  border-radius:
+    50%;
 
   background:
     var(--ink-600) !important;
 
-  flex-shrink: 0;
+  flex-shrink:
+    0;
 }
+
 
 .risk-loading .risk-dot {
 
@@ -1073,6 +1200,7 @@ CUSTOM_CSS = """
   animation:
     pulse 1.1s ease-in-out infinite;
 }
+
 
 @keyframes pulse {
 
@@ -1097,12 +1225,15 @@ CUSTOM_CSS = """
     14px !important;
 }
 
+
 button#classify-btn,
 .primary-cta {
 
-  font-weight: 600 !important;
+  font-weight:
+    600 !important;
 
-  font-size: 1rem !important;
+  font-size:
+    1rem !important;
 
   border-radius:
     12px !important;
@@ -1110,20 +1241,23 @@ button#classify-btn,
   padding:
     12px 18px !important;
 
-  letter-spacing: 0.01em;
+  letter-spacing:
+    0.01em;
 }
+
 
 button#reset-btn {
 
   border-radius:
     12px !important;
 
-  font-weight: 500 !important;
+  font-weight:
+    500 !important;
 }
 
 
 /* ============================================================
-   CHATBOT
+   CHATBOT OUTER CONTAINER
    ============================================================ */
 
 #clinical-chatbot {
@@ -1136,13 +1270,41 @@ button#reset-btn {
 
   color-scheme:
     light !important;
+
+  overflow:
+    hidden !important;
+
+  width:
+    100% !important;
+
+  box-sizing:
+    border-box !important;
 }
+
+
+/* ============================================================
+   CHAT MESSAGE WRAPPER
+   ============================================================ */
 
 #clinical-chatbot .message-wrap {
 
   padding:
-    4px 8px;
+    4px 8px !important;
+
+  width:
+    100% !important;
+
+  max-width:
+    100% !important;
+
+  box-sizing:
+    border-box !important;
 }
+
+
+/* ============================================================
+   CHAT MESSAGE
+   ============================================================ */
 
 #clinical-chatbot .message {
 
@@ -1160,10 +1322,22 @@ button#reset-btn {
 
   -webkit-text-fill-color:
     var(--ink-900) !important;
+
+  max-width:
+    100% !important;
+
+  min-width:
+    0 !important;
+
+  box-sizing:
+    border-box !important;
+
+  overflow:
+    hidden !important;
 }
 
 
-/* Bot */
+/* Bot message */
 
 #clinical-chatbot .bot {
 
@@ -1181,7 +1355,7 @@ button#reset-btn {
 }
 
 
-/* User */
+/* User message */
 
 #clinical-chatbot .user {
 
@@ -1200,13 +1374,12 @@ button#reset-btn {
 
 
 /* ============================================================
-   CHATBOT MARKDOWN CONTENT
+   CHAT MARKDOWN
    ============================================================ */
 
 #clinical-chatbot .message p,
 #clinical-chatbot .message li,
 #clinical-chatbot .message span,
-#clinical-chatbot .message div,
 #clinical-chatbot .message strong,
 #clinical-chatbot .message em {
 
@@ -1216,6 +1389,7 @@ button#reset-btn {
   -webkit-text-fill-color:
     var(--ink-900) !important;
 }
+
 
 #clinical-chatbot .message h1,
 #clinical-chatbot .message h2,
@@ -1231,6 +1405,7 @@ button#reset-btn {
     var(--teal-900) !important;
 }
 
+
 #clinical-chatbot .message a {
 
   color:
@@ -1242,19 +1417,185 @@ button#reset-btn {
 
 
 /* ============================================================
+   MARKDOWN TABLES
+   ============================================================ */
+
+/*
+   IMPORTANT:
+
+   Wide tables must NOT be squeezed into the phone width.
+
+   The table is allowed to keep a readable width.
+*/
+
+
+#clinical-chatbot .message table {
+
+  border-collapse:
+    collapse !important;
+
+  table-layout:
+    auto !important;
+
+  width:
+    max-content !important;
+
+  min-width:
+    100% !important;
+
+  max-width:
+    none !important;
+}
+
+
+#clinical-chatbot .message th,
+#clinical-chatbot .message td {
+
+  padding:
+    8px 10px !important;
+
+  min-width:
+    120px !important;
+
+  white-space:
+    normal !important;
+
+  word-break:
+    normal !important;
+
+  overflow-wrap:
+    normal !important;
+
+  color:
+    var(--ink-900) !important;
+
+  -webkit-text-fill-color:
+    var(--ink-900) !important;
+}
+
+
+/* ============================================================
+   TABLE SCROLL CONTAINER
+   ============================================================ */
+
+/*
+   Markdown-generated tables can be wider than the phone.
+
+   This prevents:
+
+   T
+   y
+   pi
+   ca
+   l
+
+   and instead gives the user horizontal scrolling.
+*/
+
+#clinical-chatbot .message .table-wrapper,
+#clinical-chatbot .message .prose {
+
+  min-width:
+    0 !important;
+
+  max-width:
+    100% !important;
+}
+
+
+/*
+   If the Markdown renderer wraps the table directly,
+   allow horizontal overflow.
+*/
+
+#clinical-chatbot .message {
+
+  overflow-x:
+    hidden !important;
+}
+
+
+/*
+   Table itself can extend beyond the content width.
+*/
+
+#clinical-chatbot .message table {
+
+  overflow:
+    visible !important;
+}
+
+
+/* ============================================================
+   CODE
+   ============================================================ */
+
+#clinical-chatbot .message pre {
+
+  max-width:
+    100% !important;
+
+  overflow-x:
+    auto !important;
+
+  white-space:
+    pre !important;
+}
+
+
+#clinical-chatbot .message code {
+
+  word-break:
+    normal !important;
+
+  overflow-wrap:
+    normal !important;
+}
+
+
+/* ============================================================
    SUGGESTED QUESTIONS
    ============================================================ */
 
-#suggested-questions .wrap {
+#suggested-questions {
 
-  display: flex !important;
+  color-scheme:
+    light !important;
 
-  flex-wrap: wrap;
-
-  gap: 8px;
+  width:
+    100% !important;
 }
 
+
+#suggested-questions .wrap {
+
+  display:
+    flex !important;
+
+  flex-wrap:
+    wrap !important;
+
+  gap:
+    8px !important;
+
+  width:
+    100% !important;
+
+  box-sizing:
+    border-box !important;
+}
+
+
 #suggested-questions label {
+
+  display:
+    flex !important;
+
+  align-items:
+    center !important;
+
+  box-sizing:
+    border-box !important;
 
   border:
     1px solid var(--teal-500) !important;
@@ -1280,13 +1621,17 @@ button#reset-btn {
   font-weight:
     500 !important;
 
+  line-height:
+    1.35 !important;
+
   transition:
     background 0.15s ease,
     color 0.15s ease;
 
   cursor:
-    pointer;
+    pointer !important;
 }
+
 
 #suggested-questions label span {
 
@@ -1295,7 +1640,20 @@ button#reset-btn {
 
   -webkit-text-fill-color:
     var(--teal-900) !important;
+
+  white-space:
+    normal !important;
+
+  word-break:
+    normal !important;
+
+  overflow-wrap:
+    break-word !important;
+
+  line-height:
+    1.35 !important;
 }
+
 
 #suggested-questions label:hover {
 
@@ -1303,16 +1661,22 @@ button#reset-btn {
     var(--teal-100) !important;
 }
 
+
 #suggested-questions input[type="radio"] {
 
-  width: 1px;
+  width:
+    1px !important;
 
-  height: 1px;
+  height:
+    1px !important;
 
-  opacity: 0;
+  opacity:
+    0 !important;
 
-  position: absolute;
+  position:
+    absolute !important;
 }
+
 
 #suggested-questions
 input[type="radio"]:checked + span {
@@ -1323,6 +1687,7 @@ input[type="radio"]:checked + span {
   -webkit-text-fill-color:
     var(--teal-700) !important;
 }
+
 
 #suggested-questions
 input[type="radio"]:focus-visible ~ * {
@@ -1348,6 +1713,14 @@ input[type="radio"]:focus-visible ~ * {
     8px;
 }
 
+
+#msg-input {
+
+  min-width:
+    0 !important;
+}
+
+
 #msg-input textarea {
 
   border-radius:
@@ -1365,6 +1738,7 @@ input[type="radio"]:focus-visible ~ * {
   -webkit-text-fill-color:
     var(--ink-900) !important;
 }
+
 
 #msg-input textarea::placeholder {
 
@@ -1431,27 +1805,14 @@ input:focus-visible,
 
 
 /* ============================================================
-   MOBILE TEXT VISIBILITY FIX
-   ============================================================
-
-   IMPORTANT:
-   This section changes ONLY text/background rendering.
-   It does NOT change:
-   - Rows
-   - Columns
-   - Widths
-   - Heights
-   - Component positions
-   - Button layout
-   - Chatbot height
-   - Image layout
+   MOBILE
    ============================================================ */
 
 @media (max-width: 768px) {
 
 
   /* ----------------------------------------------------------
-     FORCE LIGHT COLOR SCHEME
+     LIGHT COLOR SCHEME
      ---------------------------------------------------------- */
 
   :root {
@@ -1507,18 +1868,7 @@ input:focus-visible,
   }
 
 
-  /* Risk */
-
-  .result-card .risk-row {
-
-    color:
-      #16241F !important;
-
-    -webkit-text-fill-color:
-      #16241F !important;
-  }
-
-
+  .result-card .risk-row,
   .result-card .risk-row span {
 
     color:
@@ -1530,7 +1880,7 @@ input:focus-visible,
 
 
   /* ----------------------------------------------------------
-     CONFIDENCE CHIP
+     CONFIDENCE
      ---------------------------------------------------------- */
 
   .result-card .chip-high {
@@ -1578,25 +1928,78 @@ input:focus-visible,
 
   #clinical-chatbot {
 
+    width:
+      100% !important;
+
+    max-width:
+      100% !important;
+
     color-scheme:
       light !important;
+
+    box-sizing:
+      border-box !important;
+
+    overflow:
+      hidden !important;
+  }
+
+
+  /*
+     Keep chatbot messages as wide as possible.
+  */
+
+  #clinical-chatbot .message-wrap {
+
+    width:
+      100% !important;
+
+    max-width:
+      100% !important;
+
+    padding:
+      5px 8px !important;
+
+    box-sizing:
+      border-box !important;
   }
 
 
   #clinical-chatbot .message {
+
+    width:
+      100% !important;
+
+    max-width:
+      100% !important;
+
+    min-width:
+      0 !important;
+
+    box-sizing:
+      border-box !important;
 
     color:
       #16241F !important;
 
     -webkit-text-fill-color:
       #16241F !important;
+
+    font-size:
+      0.96rem !important;
+
+    line-height:
+      1.55 !important;
   }
 
+
+  /* ----------------------------------------------------------
+     CHAT TEXT
+     ---------------------------------------------------------- */
 
   #clinical-chatbot .message p,
   #clinical-chatbot .message li,
   #clinical-chatbot .message span,
-  #clinical-chatbot .message div,
   #clinical-chatbot .message strong,
   #clinical-chatbot .message em {
 
@@ -1622,10 +2025,212 @@ input:focus-visible,
 
 
   /* ----------------------------------------------------------
+     TABLE FIX
+     ----------------------------------------------------------
+
+     Tables should NOT compress their columns until every
+     word becomes one character.
+
+     They keep a readable minimum width.
+  */
+
+  #clinical-chatbot .message table {
+
+    width:
+      max-content !important;
+
+    min-width:
+      520px !important;
+
+    max-width:
+      none !important;
+
+    table-layout:
+      auto !important;
+
+    border-collapse:
+      collapse !important;
+  }
+
+
+  #clinical-chatbot .message th,
+  #clinical-chatbot .message td {
+
+    min-width:
+      120px !important;
+
+    padding:
+      8px 10px !important;
+
+    white-space:
+      normal !important;
+
+    word-break:
+      normal !important;
+
+    overflow-wrap:
+      normal !important;
+
+    font-size:
+      0.88rem !important;
+
+    line-height:
+      1.45 !important;
+
+    color:
+      #16241F !important;
+
+    -webkit-text-fill-color:
+      #16241F !important;
+  }
+
+
+  /*
+     Markdown prose/table container.
+
+     If Gradio places the table inside .prose, the
+     prose area can scroll horizontally.
+  */
+
+  #clinical-chatbot .message .prose {
+
+    width:
+      100% !important;
+
+    max-width:
+      100% !important;
+
+    min-width:
+      0 !important;
+
+    overflow-x:
+      auto !important;
+
+    overflow-y:
+      visible !important;
+
+    -webkit-overflow-scrolling:
+      touch !important;
+  }
+
+
+  /*
+     If a direct table wrapper exists.
+  */
+
+  #clinical-chatbot .message .table-wrapper {
+
+    width:
+      100% !important;
+
+    max-width:
+      100% !important;
+
+    overflow-x:
+      auto !important;
+
+    overflow-y:
+      visible !important;
+
+    -webkit-overflow-scrolling:
+      touch !important;
+  }
+
+
+  /*
+     Prevent long URLs/code from destroying the layout.
+  */
+
+  #clinical-chatbot .message pre {
+
+    max-width:
+      100% !important;
+
+    overflow-x:
+      auto !important;
+  }
+
+
+  /* ----------------------------------------------------------
      SUGGESTED QUESTIONS
      ---------------------------------------------------------- */
 
+  #suggested-questions {
+
+    width:
+      100% !important;
+
+    color-scheme:
+      light !important;
+
+    box-sizing:
+      border-box !important;
+  }
+
+
+  #suggested-questions .wrap {
+
+    display:
+      flex !important;
+
+    flex-direction:
+      column !important;
+
+    flex-wrap:
+      nowrap !important;
+
+    width:
+      100% !important;
+
+    max-width:
+      100% !important;
+
+    gap:
+      8px !important;
+
+    box-sizing:
+      border-box !important;
+  }
+
+
+  /*
+     Each suggested question is a pill.
+
+     Long questions wrap to a second line INSIDE
+     the pill instead of becoming a textbox.
+  */
+
   #suggested-questions label {
+
+    display:
+      flex !important;
+
+    align-items:
+      center !important;
+
+    justify-content:
+      flex-start !important;
+
+    width:
+      100% !important;
+
+    max-width:
+      100% !important;
+
+    min-height:
+      44px !important;
+
+    box-sizing:
+      border-box !important;
+
+    padding:
+      9px 18px !important;
+
+    border-radius:
+      999px !important;
+
+    border:
+      1px solid #2E9490 !important;
 
     background:
       #FFFFFF !important;
@@ -1635,24 +2240,93 @@ input:focus-visible,
 
     -webkit-text-fill-color:
       #0B3D3B !important;
+
+    font-size:
+      0.88rem !important;
+
+    font-weight:
+      500 !important;
+
+    line-height:
+      1.35 !important;
+
+    overflow:
+      hidden !important;
   }
 
 
   #suggested-questions label span {
 
+    display:
+      block !important;
+
+    width:
+      100% !important;
+
     color:
       #0B3D3B !important;
 
     -webkit-text-fill-color:
       #0B3D3B !important;
+
+    white-space:
+      normal !important;
+
+    word-break:
+      normal !important;
+
+    overflow-wrap:
+      break-word !important;
+
+    line-height:
+      1.35 !important;
+  }
+
+
+  #suggested-questions label:hover {
+
+    background:
+      #E6F1F0 !important;
   }
 
 
   /* ----------------------------------------------------------
-     TEXT INPUT
+     MESSAGE INPUT
      ---------------------------------------------------------- */
 
+  #msg-row {
+
+    width:
+      100% !important;
+
+    max-width:
+      100% !important;
+
+    box-sizing:
+      border-box !important;
+
+    align-items:
+      flex-end !important;
+
+    gap:
+      8px !important;
+  }
+
+
+  #msg-input {
+
+    min-width:
+      0 !important;
+
+    flex:
+      1 1 auto !important;
+  }
+
+
   #msg-input textarea {
+
+    width:
+      100% !important;
 
     background:
       #FFFFFF !important;
@@ -1662,6 +2336,12 @@ input:focus-visible,
 
     -webkit-text-fill-color:
       #16241F !important;
+
+    font-size:
+      0.95rem !important;
+
+    border-radius:
+      12px !important;
   }
 
 
@@ -1675,40 +2355,6 @@ input:focus-visible,
 
     opacity:
       1 !important;
-  }
-
-
-  /* ----------------------------------------------------------
-     GRADIO LABELS / GENERAL TEXT
-     ----------------------------------------------------------
-
-     Only apply this to textual elements, NOT every div.
-     This avoids accidentally changing button/icon colors.
-     ---------------------------------------------------------- */
-
-  #upload-col label,
-  #upload-col .label-wrap,
-  #upload-col .block-label,
-  #msg-input label,
-  #suggested-questions label {
-
-    color:
-      #16241F !important;
-
-    -webkit-text-fill-color:
-      #16241F !important;
-  }
-
-
-  /* Suggested question labels need teal instead */
-
-  #suggested-questions label {
-
-    color:
-      #0B3D3B !important;
-
-    -webkit-text-fill-color:
-      #0B3D3B !important;
   }
 }
 """
@@ -1779,7 +2425,6 @@ with gr.Blocks(
 
     with gr.Row(equal_height=False):
 
-
         # ====================================================
         # LEFT COLUMN
         # ====================================================
@@ -1796,20 +2441,17 @@ with gr.Blocks(
                 '</div>'
             )
 
-
             image_input = gr.Image(
                 type="pil",
                 label="Upload dermoscopic image",
                 elem_id="image-input",
             )
 
-
             classify_btn = gr.Button(
                 "🔬 Classify & Start Consultation",
                 variant="primary",
                 elem_id="classify-btn",
             )
-
 
             result_md = gr.HTML(
                 '<div class="result-card '
@@ -1818,7 +2460,6 @@ with gr.Blocks(
                 "prediction here."
                 "</div>"
             )
-
 
             reset_btn = gr.Button(
                 "🔄 Reset Consultation",
@@ -1840,13 +2481,11 @@ with gr.Blocks(
                 '</div>'
             )
 
-
             chatbot = gr.Chatbot(
                 height=460,
                 label="Clinical AI Assistant",
                 elem_id="clinical-chatbot",
             )
-
 
             suggested_questions = gr.Radio(
                 choices=[],
@@ -1855,7 +2494,6 @@ with gr.Blocks(
                 interactive=True,
                 elem_id="suggested-questions",
             )
-
 
             with gr.Row(
                 elem_id="msg-row"
@@ -1871,7 +2509,6 @@ with gr.Blocks(
                     scale=5,
                     elem_id="msg-input",
                 )
-
 
                 send_btn = gr.Button(
                     "Send",
