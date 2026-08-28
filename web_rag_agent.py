@@ -44,7 +44,7 @@ from langchain_groq import ChatGroq
 # questions section.
 
 briefing_model = ChatGroq(
-    model="openai/gpt-oss-120b",
+    model="openai/gpt-oss-20b",
     temperature=0.1,
     max_tokens=800,
     groq_api_key=GROQ_API_KEY,
