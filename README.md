@@ -28,6 +28,8 @@ clinical assistant.
 ## link for project
 https://huggingface.co/spaces/shindevaishnavi304/Skin-AI-Disease-detection
 
+<img width="1917" height="861" alt="image" src="https://github.com/user-attachments/assets/01c27228-4acf-4224-a3a4-772bec9a952c" />
+
 
 ## Disclaimer
 
