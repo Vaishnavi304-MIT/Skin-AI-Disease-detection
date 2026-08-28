@@ -76,16 +76,17 @@ def classify_only(image):
 
 
 # ============================================================
-# FORMATTING HELPERS (new — used for the redesigned result card)
+# FORMATTING HELPERS
 # ============================================================
 
 
 def strip_followup_section(text):
-    """The LLM sometimes writes its own "Follow-up Questions a Clinician
-    Might Ask" section directly into the briefing/answer text — duplicating
-    what already appears in the 'Suggested clinical inquiries' chip list
-    below the chat. Cut that section out of the chat text so each question
-    only shows up once, as a clickable chip, not as chat prose."""
+    """Safety net: if the LLM ever writes its own "Follow-up Questions"
+    section directly into the briefing/answer text despite being told not
+    to, cut that section out of the chat text so it can't duplicate the
+    clickable chip list below the chat. With web_rag_agent.py generating
+    questions in a fully separate call now, this should rarely trigger --
+    kept as a defensive measure only."""
     if not text:
         return text
     heading_pattern = re.compile(
@@ -240,7 +241,12 @@ def classify_and_start_chat(image, old_session_id):
 
 
 def _stream_turn(user_message, history, predicted_class, session_id):
-    """Shared streaming logic for both the textbox and suggested-question flows."""
+    """Shared streaming logic for both the textbox and suggested-question
+    flows. Both callers below pass the same plain question string into
+    this function, which forwards it unchanged to query_chat_bot_stream —
+    so a manually typed question and a clicked suggested-question chip are
+    handled identically, and the follow-up questions generated at the end
+    are always grounded in *this* turn's user_message + answer only."""
     if not predicted_class:
         yield history + [
             {"role": "user", "content": user_message},
@@ -659,7 +665,7 @@ with gr.Blocks(title="Skin AI — Clinical Decision Support", theme=THEME, css=C
                 height=460,
                 label="Clinical AI Assistant",
                 elem_id="clinical-chatbot",
-    
+
             )
             suggested_questions = gr.Radio(
                 choices=[],

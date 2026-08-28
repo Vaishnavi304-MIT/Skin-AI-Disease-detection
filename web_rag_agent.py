@@ -34,6 +34,14 @@ from langchain_groq import ChatGroq
 # briefing, and a leaner one for fast follow-up chat turns. Follow-up
 # answers don't need 900 tokens, so cutting max_tokens there directly
 # cuts latency.
+#
+# NOTE: neither model's max_tokens budget has to cover a trailing
+# "===QUESTIONS===" block anymore -- question generation is a fully
+# separate, unlinked call (see _generate_followups below). That was
+# the root cause of suggested questions silently falling back to
+# generic text: long answers (especially ones with web context) would
+# eat the whole token budget before the model ever reached the
+# questions section.
 
 briefing_model = ChatGroq(
     model="openai/gpt-oss-120b",
@@ -80,7 +88,7 @@ drugs, dosages, routes and durations for their professional review.
 Condition identified: {disease_label}
 
 CRITICAL RULES:
--Always use easy language which is understandable.
+- Always use easy language which is understandable.
 - Use clean Markdown with bullet points and bold section headers.
 - Be concise and scannable — clinicians skim. No filler sentences.
 - Extract and cite the latest diagnostic tests / treatment facts from the
@@ -89,8 +97,8 @@ CRITICAL RULES:
 - Never output raw JSON braces or JSON keys.
 - The Risk Level line MUST use exactly one of these three words:
   Benign, Pre-malignant, or Malignant.
-- Suggested questions must be questions a CLINICIAN would ask THIS AI
-  next (never questions directed at the user).
+- Answer ONLY the clinical question. Do not write your own "follow-up
+  questions" section — that is generated separately.
 
 WEB CONTEXT:
 {context}
@@ -163,12 +171,14 @@ def search_followup(disease: str, question: str) -> str:
 
 
 # ============================================================
-# OUTPUT PARSING
+# OUTPUT PARSING (kept for any legacy/non-streaming callers)
 # ============================================================
 
 
 def parse_clean_output(text: str, fallback_questions: list):
-    """Cleanly splits main briefing/answer from questions without JSON parsing issues."""
+    """Cleanly splits main briefing/answer from questions without JSON parsing
+    issues. Only relevant if a prompt still asks the model to emit a trailing
+    ===QUESTIONS=== block (the streaming paths below no longer do this)."""
     text = re.sub(r"```json|```", "", text).strip()
 
     if "===QUESTIONS===" in text:
@@ -204,6 +214,45 @@ def extract_risk_level(text: str) -> str:
 
 
 # ============================================================
+# FOLLOW-UP QUESTION GENERATION
+# ============================================================
+# This is the key fix: follow-up "suggested questions" are always derived
+# from the single most recent question + answer pair, passed in explicitly
+# as arguments -- never read back out of session memory, and never routed
+# through RunnableWithMessageHistory. That means:
+#
+#   1. It doesn't matter whether the previous question came from the
+#      textbox (manually typed) or from clicking a suggested-question
+#      chip -- both paths call this with the same two plain strings.
+#   2. It can't be diluted by older turns piling up in chat history.
+#   3. It never competes for token budget with the main answer, so it
+#      can't get silently truncated and fall back to generic questions.
+
+
+def _generate_followups(disease_label, last_question, last_answer, default_qs):
+    """Grounded ONLY in the most recent exchange (ignores earlier history
+    on purpose). Isolated model.invoke() call — no memory read/write."""
+    followup_prompt = f"""
+Condition: {disease_label}
+Most recent clinician question: "{last_question}"
+Most recent AI answer: "{last_answer[:1200]}"
+
+Based ONLY on the exchange above (ignore any earlier conversation),
+list exactly 4 short follow-up questions a CLINICIAN would ask you next.
+One per line. No numbering, no headers, no JSON, no extra commentary.
+"""
+    try:
+        resp = chat_model.invoke(followup_prompt)
+        raw_qs = [q.strip() for q in resp.content.split("\n") if q.strip()]
+        qs = [re.sub(r"^[-*0-9.]+\s*", "", q).strip() for q in raw_qs]
+        qs = [q for q in qs if q][:4]
+        return qs if qs else default_qs
+    except Exception as e:
+        print("Follow-up generation error:", e)
+        return default_qs
+
+
+# ============================================================
 # CHAIN HELPERS
 # ============================================================
 
@@ -216,6 +265,51 @@ def _make_chat(model):
         input_messages_key="input",
         history_messages_key="chat_history",
     )
+
+
+# ============================================================
+# INITIAL BRIEFING PROMPT (shared by streaming + non-streaming)
+# ============================================================
+
+_BRIEFING_REQUEST_TEMPLATE = """
+Using the web context provided, create a structured clinical briefing for '{disease_label}'.
+
+Format the response using this exact structure:
+
+### ⚠️ Severity & Malignancy
+- **Risk Level:** Benign / Pre-malignant / Malignant (pick exactly one word)
+- **Clinical Severity:** Expected course and key warning signs.
+
+### 🧪 Diagnostic Tests Required
+- 2 to 4 current diagnostic/confirmatory tests (e.g., Punch Biopsy, Dermoscopy pattern, Direct Immunofluorescence, Blood panel). One line each on why it's indicated.
+
+### 💊 Recommended Treatments & Medications
+- **First-line / Topical:** Name specific drugs, typical strength, and regimen (e.g., "Imiquimod 5% cream, 3x/week for 6 weeks").
+- **Systemic / Procedural:** Current clinical advancement in treatment and second-line drugs or procedures with typical dosing/route.
+
+### 🛡️ Key Precautions
+- 2 critical precautions or infection-control measures.
+"""
+
+_DEFAULT_INITIAL_QUESTION_LABEL = "Give me the initial clinical briefing for this condition."
+
+
+def _default_initial_questions(disease_label):
+    return [
+        f"What are the main differential diagnoses for {disease_label}?",
+        f"What specific biopsy technique is indicated for {disease_label}?",
+        f"What are the standard dosages for first-line therapies?",
+        f"What complications should be monitored?",
+    ]
+
+
+def _default_followup_questions(disease_label):
+    return [
+        f"What are the differential diagnoses for {disease_label}?",
+        f"What additional confirmatory tests should be ordered?",
+        f"What are common side effects of this treatment?",
+        f"What precautions help prevent recurrence?",
+    ]
 
 
 # ============================================================
@@ -233,31 +327,9 @@ def generate_initial_content(disease_label: str, session_id: str):
 def generate_initial_content_full(disease_label: str, session_id: str):
     """Returns (briefing, questions, risk_badge)."""
     context = search_initial_briefing(disease_label)
-
     chat = _make_chat(briefing_model)
 
-    request = f"""
-Using the web context provided, create a structured clinical briefing for '{disease_label}'.
-
-Format the response using this exact structure:
-
-### ⚠️ Severity & Malignancy
-- **Risk Level:** Benign / Pre-malignant / Malignant (pick exactly one word)
-- **Clinical Severity:** Expected course and key warning signs.
-
-### 🧪 Diagnostic Tests Required
-- 2 to 4 current diagnostic/confirmatory tests (e.g., Punch Biopsy, Dermoscopy pattern, Direct Immunofluorescence, Blood panel). One line each on why it's indicated.
-
-### 💊 Recommended Treatments & Medications
-- **First-line / Topical:** Name specific drugs, typical strength, and regimen (e.g., "Imiquimod 5% cream, 3x/week for 6 weeks").
-- **Systemic / Procedural:** Second-line drugs or procedures with typical dosing/route.
-
-### 🛡️ Key Precautions
-- 2 critical precautions or infection-control measures.
-
-===QUESTIONS===
-- Provide exactly 4 short follow-up questions a CLINICIAN would ask YOU (the AI) next about {disease_label}.
-"""
+    request = _BRIEFING_REQUEST_TEMPLATE.format(disease_label=disease_label)
 
     response = chat.invoke(
         {
@@ -268,51 +340,27 @@ Format the response using this exact structure:
         config={"configurable": {"session_id": session_id}},
     )
 
-    default_qs = [
-        f"What are the main differential diagnoses for {disease_label}?",
-        f"What specific biopsy technique is indicated for {disease_label}?",
-        f"What are the standard dosages for first-line therapies?",
-        f"What complications should be monitored?",
-    ]
-
-    briefing, questions = parse_clean_output(response.content, default_qs)
-    risk_badge = extract_risk_level(response.content)
+    briefing = re.sub(r"```json|```", "", response.content).strip()
+    risk_badge = extract_risk_level(briefing)
+    default_qs = _default_initial_questions(disease_label)
+    questions = _generate_followups(
+        disease_label, _DEFAULT_INITIAL_QUESTION_LABEL, briefing, default_qs
+    )
     return briefing, questions, risk_badge
 
 
 def generate_initial_content_stream(disease_label: str, session_id: str):
     """Streams the briefing token-by-token for a Claude-like typing feel.
-    Yields display-ready partial markdown (the ===QUESTIONS=== tail is
-    withheld from display). Final yield includes the parsed questions and
-    risk badge as a 3-tuple: (full_text, questions, risk_badge)."""
+    Yields display-ready partial markdown. The final yield is a 3-tuple:
+    (full_text, questions, risk_badge) -- questions/risk are None on every
+    intermediate yield and only populated once, after the answer is fully
+    streamed and a separate, unlinked follow-up-question call has run."""
     context = search_initial_briefing(disease_label)
     chat = _make_chat(briefing_model)
 
-    request = f"""
-Using the web context provided, create a structured clinical briefing for '{disease_label}'.
-
-Format the response using this exact structure:
-
-### ⚠️ Severity & Malignancy
-- **Risk Level:** Benign / Pre-malignant / Malignant (pick exactly one word)
-- **Clinical Severity:** Expected course and key warning signs.
-
-### 🧪 Diagnostic Tests Required
-- 2 to 4 current diagnostic/confirmatory tests (e.g., Punch Biopsy, Dermoscopy pattern, Direct Immunofluorescence, Blood panel). One line each on why it's indicated.
-
-### 💊 Recommended Treatments & Medications
-- **First-line / Topical:** Name specific drugs, typical strength, and regimen (e.g., "Imiquimod 5% cream, 3x/week for 6 weeks").
-- **Systemic / Procedural:** current clinical advancement in treatment and Second-line drugs or procedures with typical dosing/route.
-
-### 🛡️ Key Precautions
-- 2 critical precautions or infection-control measures.
-
-===QUESTIONS===
-- Provide exactly 4 short follow-up questions a CLINICIAN would ask YOU (the AI) next about {disease_label}.
-"""
+    request = _BRIEFING_REQUEST_TEMPLATE.format(disease_label=disease_label)
 
     buffer = ""
-    cutoff_shown = False
     for chunk in chat.stream(
         {
             "disease_label": disease_label,
@@ -321,21 +369,16 @@ Format the response using this exact structure:
         },
         config={"configurable": {"session_id": session_id}},
     ):
-        piece = chunk.content or ""
-        buffer += piece
-        if "===QUESTIONS===" in buffer and not cutoff_shown:
-            cutoff_shown = True
-        display_text = buffer.split("===QUESTIONS===")[0].strip()
+        buffer += chunk.content or ""
+        display_text = re.sub(r"```json|```", "", buffer).strip()
         yield display_text, None, None
 
-    default_qs = [
-        f"What are the main differential diagnoses for {disease_label}?",
-        f"What specific biopsy technique is indicated for {disease_label}?",
-        f"What are the standard dosages for first-line therapies?",
-        f"What complications should be monitored?",
-    ]
-    briefing, questions = parse_clean_output(buffer, default_qs)
-    risk_badge = extract_risk_level(buffer)
+    briefing = re.sub(r"```json|```", "", buffer).strip()
+    risk_badge = extract_risk_level(briefing)
+    default_qs = _default_initial_questions(disease_label)
+    questions = _generate_followups(
+        disease_label, _DEFAULT_INITIAL_QUESTION_LABEL, briefing, default_qs
+    )
     yield briefing, questions, risk_badge
 
 
@@ -357,32 +400,19 @@ def query_chat_bot(
 
     chat = _make_chat(chat_model)
 
-    request = f"""
-User Query: "{user_input}"
-
-Provide a direct, structured clinical answer with bullet points. Be concise.
-
-===QUESTIONS===
-- List 4 short follow-up questions a CLINICIAN would ask the AI next based on this response.
-"""
-
     response = chat.invoke(
         {
             "disease_label": disease_label,
             "context": context,
-            "input": request,
+            "input": user_input,
         },
         config={"configurable": {"session_id": session_id}},
     )
 
-    default_qs = [
-        f"What are the differential diagnoses for {disease_label}?",
-        f"What additional confirmatory tests should be ordered?",
-        f"What are common side effects of this treatment?",
-        f"What precautions help prevent recurrence?",
-    ]
-
-    return parse_clean_output(response.content, default_qs)
+    answer = re.sub(r"```json|```", "", response.content).strip()
+    default_qs = _default_followup_questions(disease_label)
+    questions = _generate_followups(disease_label, user_input, answer, default_qs)
+    return answer, questions
 
 
 def query_chat_bot_stream(
@@ -390,8 +420,12 @@ def query_chat_bot_stream(
     disease_label: str = "Unknown skin condition",
     session_id: str = "default",
 ):
-    """Streams the chat answer. Yields partial display text, and a final
-    (full_text, questions) tuple as the last yield."""
+    """Streams the chat answer. Yields (partial_answer, None) while
+    streaming, then a final (full_answer, questions) tuple. `questions`
+    is always generated from THIS turn's user_input/answer only -- it
+    doesn't matter whether user_input came from the textbox or from a
+    clicked suggested-question chip; both paths call this function with
+    a plain question string, so behavior is identical either way."""
     context = (
         search_followup(disease_label, user_input)
         if needs_search(user_input)
@@ -400,33 +434,20 @@ def query_chat_bot_stream(
 
     chat = _make_chat(chat_model)
 
-    request = f"""
-User Query: "{user_input}"
-
-Provide a direct, structured clinical answer with bullet points. Be concise.
-
-===QUESTIONS===
-- List 4 short follow-up questions a CLINICIAN would ask the AI next based on this response.
-"""
-
     buffer = ""
     for chunk in chat.stream(
         {
             "disease_label": disease_label,
             "context": context,
-            "input": request,
+            "input": user_input,
         },
         config={"configurable": {"session_id": session_id}},
     ):
         buffer += chunk.content or ""
-        display_text = buffer.split("===QUESTIONS===")[0].strip()
+        display_text = re.sub(r"```json|```", "", buffer).strip()
         yield display_text, None
 
-    default_qs = [
-        f"What are the differential diagnoses for {disease_label}?",
-        f"What additional confirmatory tests should be ordered?",
-        f"What are common side effects of this treatment?",
-        f"What precautions help prevent recurrence?",
-    ]
-    answer, questions = parse_clean_output(buffer, default_qs)
+    answer = re.sub(r"```json|```", "", buffer).strip()
+    default_qs = _default_followup_questions(disease_label)
+    questions = _generate_followups(disease_label, user_input, answer, default_qs)
     yield answer, questions
