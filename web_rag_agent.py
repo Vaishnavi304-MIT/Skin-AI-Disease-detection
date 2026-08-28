@@ -27,21 +27,7 @@ from langchain_core.prompts import (
 from langchain_core.runnables.history import RunnableWithMessageHistory
 from langchain_groq import ChatGroq
 
-# ============================================================
-# MODEL SETUP
-# ============================================================
-# Two model instances: a larger-budget one for the first, structured
-# briefing, and a leaner one for fast follow-up chat turns. Follow-up
-# answers don't need 900 tokens, so cutting max_tokens there directly
-# cuts latency.
-#
-# NOTE: neither model's max_tokens budget has to cover a trailing
-# "===QUESTIONS===" block anymore -- question generation is a fully
-# separate, unlinked call (see _generate_followups below). That was
-# the root cause of suggested questions silently falling back to
-# generic text: long answers (especially ones with web context) would
-# eat the whole token budget before the model ever reached the
-# questions section.
+
 
 briefing_model = ChatGroq(
     model="openai/gpt-oss-20b",
@@ -58,10 +44,6 @@ chat_model = ChatGroq(
 )
 
 search = DuckDuckGoSearchRun()
-
-# ============================================================
-# SESSION MEMORY
-# ============================================================
 
 store = {}
 
@@ -116,9 +98,6 @@ prompt = ChatPromptTemplate.from_messages(
 # DUCKDUCKGO SEARCH — cached + combined to cut calls/tokens
 # ============================================================
 
-# Words that signal a follow-up question actually needs fresh web facts.
-# Kept broad on purpose: false negatives (skipping a needed search) hurt
-# clinical accuracy more than the cost of an occasional extra search.
 SEARCH_TRIGGER_KEYWORDS = {
     "test", "biopsy", "treatment", "cure", "drug", "medication", "medicine",
     "dose", "dosage", "malignan", "cancer", "guideline", "latest", "recent",
@@ -126,8 +105,6 @@ SEARCH_TRIGGER_KEYWORDS = {
     "side effect", "interaction", "recurrence", "prognosis", "staging",
 }
 
-# Short conversational turns that never need a search, checked first so
-# they short-circuit before the trigger-keyword scan even runs.
 NO_SEARCH_PATTERNS = re.compile(
     r"^\s*(hi|hello|hey|thanks|thank you|ok|okay|sure|got it|great|cool|yes|no)\W*\s*$",
     re.IGNORECASE,
