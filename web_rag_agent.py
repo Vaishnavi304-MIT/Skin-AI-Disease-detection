@@ -45,14 +45,14 @@ from langchain_groq import ChatGroq
 
 briefing_model = ChatGroq(
     model="openai/gpt-oss-20b",
-    temperature=1.0,
+    temperature=0.2,
     max_tokens=800,
     groq_api_key=GROQ_API_KEY,
 )
 
 chat_model = ChatGroq(
-    model="openai/gpt-oss-120b",
-    temperature=0.1,
+    model="openai/gpt-oss-20b",
+    temperature=0.2,
     max_tokens=450,
     groq_api_key=GROQ_API_KEY,
 )
