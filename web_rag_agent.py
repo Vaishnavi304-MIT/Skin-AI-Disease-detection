@@ -213,22 +213,6 @@ def extract_risk_level(text: str) -> str:
     return "⚪ **Risk level unclear — review manually**"
 
 
-# ============================================================
-# FOLLOW-UP QUESTION GENERATION
-# ============================================================
-# This is the key fix: follow-up "suggested questions" are always derived
-# from the single most recent question + answer pair, passed in explicitly
-# as arguments -- never read back out of session memory, and never routed
-# through RunnableWithMessageHistory. That means:
-#
-#   1. It doesn't matter whether the previous question came from the
-#      textbox (manually typed) or from clicking a suggested-question
-#      chip -- both paths call this with the same two plain strings.
-#   2. It can't be diluted by older turns piling up in chat history.
-#   3. It never competes for token budget with the main answer, so it
-#      can't get silently truncated and fall back to generic questions.
-
-
 def _generate_followups(disease_label, last_question, last_answer, default_qs):
     """Grounded ONLY in the most recent exchange (ignores earlier history
     on purpose). Isolated model.invoke() call — no memory read/write."""
@@ -238,7 +222,7 @@ Most recent clinician question: "{last_question}"
 Most recent AI answer: "{last_answer[:1200]}"
 
 Based ONLY on the exchange above (ignore any earlier conversation),
-list exactly 4 short follow-up questions a CLINICIAN would ask you next.
+list exactly 4 short follow-up questions a CLINICIAN would to AI next, remember doctor is asking ai for help not askking question to patient
 One per line. No numbering, no headers, no JSON, no extra commentary.
 """
     try:
