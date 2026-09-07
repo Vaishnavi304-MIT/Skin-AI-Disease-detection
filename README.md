@@ -7,7 +7,6 @@ sdk: gradio
 app_file: app.py
 ---
 
-# Skin AI — Clinical Decision Support
 
 # Skin AI — Clinical Decision Support Dashboard
 <img width="1917" height="861" alt="image" src="https://github.com/user-attachments/assets/01c27228-4acf-4224-a3a4-772bec9a952c" />
