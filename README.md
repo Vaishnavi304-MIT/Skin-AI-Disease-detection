@@ -80,7 +80,6 @@ Under the supervision of **Prof. Vinaya S. Tapkir**.
 **MIT Academy of Engineering**
 School of E&TC Engineering (SEE)
 TY-BTech Major Project (SEM-VI), SEM-VII Project - II
-(2307391)
 
 ## Conclusion
 
