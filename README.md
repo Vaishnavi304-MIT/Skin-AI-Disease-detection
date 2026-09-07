@@ -25,7 +25,7 @@ We have implemented a hybrid system architecture that combines a high-performanc
 
 <img width="2816" height="1536" alt="Gemini_Generated_Image_osqmkjosqmkjosqm" src="https://github.com/user-attachments/assets/261b1ac6-158a-4567-b1b0-6f849c1b9a14" />
 
-*Figure 1: Downloadable System Architecture*
+*Figure 1: System Architecture*
 
 ### Functional Overview
 
