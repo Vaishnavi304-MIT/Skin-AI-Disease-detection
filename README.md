@@ -10,7 +10,7 @@ app_file: app.py
 
 # Skin AI — Clinical Decision Support Dashboard
 <img width="1917" height="861" alt="image" src="https://github.com/user-attachments/assets/01c27228-4acf-4224-a3a4-772bec9a952c" />
-
+*Figure 1: Clinical Decision Support Dashboard*
 ## Introduction
 
 Skin diseases impact the skin's surface, causing visible changes like rashes, inflammation, or itching. While causes vary from genetics to environmental factors, timely and accurate diagnosis remains challenging and costly, often leading to a significant diagnostic gap.
@@ -25,7 +25,7 @@ We have implemented a hybrid system architecture that combines a high-performanc
 
 <img width="2816" height="1536" alt="Gemini_Generated_Image_osqmkjosqmkjosqm" src="https://github.com/user-attachments/assets/261b1ac6-158a-4567-b1b0-6f849c1b9a14" />
 
-*Figure 1: System Architecture*
+*Figure 2: System Architecture*
 
 ### Functional Overview
 
