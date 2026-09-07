@@ -11,6 +11,7 @@ app_file: app.py
 # Skin AI — Clinical Decision Support Dashboard
 <img width="1917" height="861" alt="image" src="https://github.com/user-attachments/assets/01c27228-4acf-4224-a3a4-772bec9a952c" />
 *Figure 1: Clinical Decision Support Dashboard*
+
 ## Introduction
 
 Skin diseases impact the skin's surface, causing visible changes like rashes, inflammation, or itching. While causes vary from genetics to environmental factors, timely and accurate diagnosis remains challenging and costly, often leading to a significant diagnostic gap.
