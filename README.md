@@ -71,6 +71,10 @@ https://huggingface.co/spaces/shindevaishnavi304/Skin-AI-Disease-detection
 ## Authors
 
 *   **Shinde Vaishnavi** [202402060016]
+  <p align="left">
+      <a href="https://github.com/Vaishnavi304-MIT"><img src="https://img.shields.io/badge/GitHub-100000?style=for-the-badge&logo=github&logoColor=white" alt="GitHub"></a>
+      <a href="https://www.linkedin.com/in/vaishnavi-shinde-40190b2b1/"><img src="https://img.shields.io/badge/LinkedIn-0077B5?style=for-the-badge&logo=linkedin&logoColor=white" alt="LinkedIn"></a>
+  </p>
 *   **Kalaskar Shreya** [202402060006]
 *   **Yadav Pushkar** [202402060017]
 *   **Aayush Katamkar** [202402060015]
